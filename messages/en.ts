@@ -49,6 +49,14 @@ const en = {
     language: "Language",
     copyright: "© 2026 Tesorra Racing",
   },
+  ui: {
+    quantity: "Quantity",
+    decrease: "One less",
+    increase: "One more",
+    close: "Close",
+    unavailable: "sold out",
+    required: "required",
+  },
 };
 
 export type Messages = typeof en;

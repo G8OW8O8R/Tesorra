@@ -50,6 +50,14 @@ const pl: Messages = {
     language: "Język",
     copyright: "© 2026 Tesorra Racing",
   },
+  ui: {
+    quantity: "Ilość",
+    decrease: "O jedną mniej",
+    increase: "O jedną więcej",
+    close: "Zamknij",
+    unavailable: "wyprzedane",
+    required: "wymagane",
+  },
 };
 
 export default pl;
