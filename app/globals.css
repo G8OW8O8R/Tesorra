@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0d14;
+  --panel: rgb(18 20 30 / 0.72);
+  --line: rgb(242 233 220 / 0.1);
+  --fg: #f2e9dc;
+  --muted: #8b8a92;
+  --amber: #e3a04f;
+
+  --chapter-drift: #e3a04f;
+  --chapter-formula: #d9573f;
+  --chapter-moto: #8fb3d6;
+  --chapter-store: #f2e9dc;
+  --chapter-live: #e3a04f;
+
+  /* Current chapter colour; interpolated by the scene on the home page. */
+  --accent: var(--amber);
+
+  /* Mirrors lib/motion-tokens.ts */
+  --dur-instant: 90ms;
+  --dur-fast: 180ms;
+  --dur-base: 320ms;
+  --dur-slow: 640ms;
+  --dur-fade: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-ride: cubic-bezier(0.65, 0, 0.35, 1);
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-amber: var(--amber);
+  --color-accent: var(--accent);
+  --color-drift: var(--chapter-drift);
+  --color-formula: var(--chapter-formula);
+  --color-moto: var(--chapter-moto);
+  --color-store: var(--chapter-store);
+  --color-live: var(--chapter-live);
+
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --ease-standard: var(--ease-standard);
+  --ease-out: var(--ease-out);
+  --ease-in: var(--ease-in);
+}
+
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--amber);
+    color: var(--bg);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+@utility label {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: var(--dur-fade) !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--dur-fade) !important;
+    scroll-behavior: auto !important;
+  }
+}
