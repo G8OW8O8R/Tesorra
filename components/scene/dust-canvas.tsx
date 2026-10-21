@@ -65,10 +65,43 @@ export function DustCanvas({
     const onVisibility = () => scene.setVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", onVisibility);
 
+    // Mouse and pen part the dust on hover; a finger only while it drags.
+    let dragging = false;
+    const toScene = (e: PointerEvent, active: boolean) =>
+      scene.setPointer((e.clientX / window.innerWidth) * 2 - 1, 1 - (e.clientY / window.innerHeight) * 2, active);
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        if (dragging) toScene(e, true);
+      } else toScene(e, true);
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      dragging = true;
+      toScene(e, true);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      dragging = false;
+      toScene(e, false);
+    };
+    const onLeave = () => scene.setPointer(0, 0, false);
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerdown", onDown, { passive: true });
+    window.addEventListener("pointerup", onUp, { passive: true });
+    window.addEventListener("pointercancel", onUp, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onLeave);
+    window.addEventListener("blur", onLeave);
+
     return () => {
       resize.disconnect();
       motion.removeEventListener("change", onMotion);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      document.documentElement.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("blur", onLeave);
       scene.destroy();
       host.current = null;
     };

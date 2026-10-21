@@ -35,6 +35,7 @@ import {
   transformPoint,
   type Vec3,
 } from "./math";
+import { PointerTrail } from "./pointer";
 import { buildSmoke, buildStars, buildTrackClouds, sampleModel, type ModelBounds } from "./particles";
 import type { EngineEvent, EngineOptions } from "./protocol";
 import {
@@ -141,6 +142,7 @@ export class DustEngine {
   /** Share of the dense layers drawn, settled by measuring the first frames. */
   private density = 1;
   private adapt = { from: -1, frames: 0, windows: 0 };
+  private trail = new PointerTrail();
 
   private view = mat4();
   private proj = mat4();
@@ -221,6 +223,10 @@ export class DustEngine {
 
   setReducedMotion(value: boolean) {
     this.reduced = value;
+  }
+
+  setPointer(x: number, y: number, active: boolean) {
+    this.trail.set(x, y, active);
   }
 
   setVisible(value: boolean) {
@@ -440,6 +446,18 @@ export class DustEngine {
     this.drawn = 0;
     this.horizon(view.eye, view.distance, colour);
 
+    // Cursor trail (off under reduced motion).
+    if (this.reduced) this.trail.clear();
+    else this.trail.update(t, dt, this.inverse, this.view, aspect, Math.tan(fovY / 2));
+    const pointer = (prog: Program, cfg: { radius: number; strength: number; swirl: number; push: number } | null) => {
+      const on = cfg && this.trail.any;
+      gl.uniform4f(prog.u.uPointer, on ? cfg.radius : 0, cfg?.strength ?? 0, cfg?.swirl ?? 0, cfg?.push ?? 0);
+      if (!on) return;
+      gl.uniform4fv(prog.u.uTrailOrigin, this.trail.origins);
+      gl.uniform4fv(prog.u.uTrailRay, this.trail.rays);
+      gl.uniform4fv(prog.u.uTrailPush, this.trail.pushes);
+    };
+
     const common = (prog: Program, look: Look) => {
       const u = prog.u;
       gl.useProgram(prog.program);
@@ -484,6 +502,7 @@ export class DustEngine {
       const follow = layer === "stars" ? 1 : 0;
       gl.uniform1f(still.u.uFollow, follow);
       gl.uniform3fv(still.u.uPrevCamPos, this.first ? view.eye : this.prevEye);
+      pointer(still, layer === "terrain" ? T.pointer.terrain : null);
       if (layer === "fog") gl.uniform3f(still.u.uDrift, ...T.track.fogDrift);
       else if (layer === "terrain") gl.uniform3f(still.u.uDrift, ...T.track.terrainDrift);
       else gl.uniform3f(still.u.uDrift, 0, 0, 0);
@@ -505,6 +524,7 @@ export class DustEngine {
       const carHeight = (this.bounds.max[1] - this.bounds.min[1]) * T.car.scale;
       gl.uniform2f(smoke.u.uSmokeLife, s.life, s.ceiling * carHeight);
       gl.uniform2f(smoke.u.uSmokeFade, s.cameraFade[0], s.cameraFade[1]);
+      pointer(smoke, T.pointer.smoke);
       draw(this.smoke, thinned(this.smoke));
     }
 
@@ -531,6 +551,7 @@ export class DustEngine {
       gl.uniform1f(body.u.uSpread, this.carSpacing * c.copySpread);
       gl.uniform1f(body.u.uEdgeBoost, c.edgeBoost);
       gl.uniform1f(body.u.uEdgeTighten, c.edgeTighten);
+      pointer(body, T.pointer.car);
       draw(this.car, thinned(this.car) * c.copies);
     }
     gl.bindVertexArray(null);

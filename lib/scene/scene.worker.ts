@@ -25,6 +25,9 @@ scope.onmessage = ({ data }) => {
     case "visible":
       engine?.setVisible(data.value);
       break;
+    case "pointer":
+      engine?.setPointer(data.x, data.y, data.active);
+      break;
     case "dispose":
       engine?.dispose();
       engine = null;

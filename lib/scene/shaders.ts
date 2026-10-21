@@ -1,3 +1,5 @@
+import { sceneTuning } from "@/lib/scene-tuning";
+
 /**
  * GLSL for the dust scene. Particles are instanced quads: each one is projected,
  * sized by depth, widened by depth of field and stretched along its on-screen motion
@@ -21,6 +23,39 @@ vec3 swirl(vec3 p, float t) {
   vec3 v = abc(p + vec3(t, t * 0.7, -t * 0.5));
   v += 0.5 * (transpose(ROT) * abc(ROT * p * 2.1 + vec3(-t * 1.3, t, t * 0.6)));
   return v;
+}
+`;
+
+// Cursor trail: grains near any remembered cursor ray move away from it at right angles,
+// falling off smoothly with distance, with a little swirl so they part like sand. Weights fade
+// on the CPU, so the furrow closes up again without any per-particle state.
+const POINTER = /* glsl */ `
+#define TRAIL ${sceneTuning.pointer.trail}
+uniform vec4 uTrailOrigin[TRAIL];
+uniform vec4 uTrailRay[TRAIL];
+uniform vec4 uTrailPush[TRAIL];
+uniform vec4 uPointer;
+
+vec3 pointerOffset(vec3 p) {
+  vec3 offset = vec3(0.0);
+  if (uPointer.x <= 0.0) return offset;
+  for (int i = 0; i < TRAIL; i++) {
+    float w = uTrailOrigin[i].w;
+    if (w <= 0.0) continue;
+    vec3 dir = uTrailRay[i].xyz;
+    vec3 rel = p - uTrailOrigin[i].xyz;
+    float along = dot(rel, dir);
+    if (along <= 0.0) continue;
+    vec3 perp = rel - dir * along;
+    float dist = length(perp);
+    float k = w * (1.0 - smoothstep(0.0, uPointer.x, dist));
+    if (k <= 0.0) continue;
+    vec3 away = dist > 1e-4 ? perp / dist : normalize(cross(dir, vec3(0.0, 1.0, 0.0)) + 1e-4);
+    offset += away * k * uPointer.y;
+    offset += swirl(p * 3.0, uTime * 1.5) * k * uPointer.z;
+    offset += uTrailPush[i].xyz * along * k * uPointer.w;
+  }
+  return offset;
 }
 `;
 
@@ -60,6 +95,7 @@ out float vHalf;
 out float vSoft;
 
 ${SWIRL}
+${POINTER}
 `;
 
 const PARTICLE_MAIN = /* glsl */ `
@@ -152,8 +188,9 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
   vec3 p = aPos;
   if (uDrift.x > 0.0) p += swirl(aPos * uDrift.y, uTime * uDrift.z) * uDrift.x;
   sizeMul = mix(0.6, 1.4, fract(aSeed.x * 7.31 + aSeed.y * 3.17));
-  prevWorld = p + uPrevCamPos * uFollow;
-  return p + uCamPos * uFollow;
+  vec3 shove = pointerOffset(p);
+  prevWorld = p + shove + uPrevCamPos * uFollow;
+  return p + shove + uCamPos * uFollow;
 }
 `);
 
@@ -196,8 +233,10 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
   alphaMul = smoothstep(0.0, 0.35, t) * mix(0.4, 1.0, e) * (1.0 + uEdgeBoost * aFrame.w);
   whiteMix = mix(whiteMix, 0.0, 1.0 - e);
   sizeMul = mix(0.8, 1.2, h.z);
-  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz;
-  return (uModel * vec4(local, 1.0)).xyz;
+  vec3 world = (uModel * vec4(local, 1.0)).xyz;
+  vec3 shove = pointerOffset(world);
+  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz + shove;
+  return world + shove;
 }
 `);
 
@@ -254,6 +293,7 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
   alphaMul = smoothstep(0.0, 0.06, e) * (1.0 - 0.4 * grow);
   alphaMul *= 1.0 - smoothstep(0.55 * uSmokeLife.x, uSmokeLife.x, age);
   alphaMul *= smoothstep(uSmokeFade.x, uSmokeFade.y, distance(p, uCamPos));
+  p += pointerOffset(p);
   prevWorld = p;
   return p;
 }

@@ -317,6 +317,30 @@ export const sceneTuning = {
     edgeBoost: 1.6,
   },
 
+  /**
+   * Cursor (or a dragging finger) parts the dust like sand. Per layer: radius around the cursor
+   * ray (m), how far grains at the centre are shoved aside (m), extra swirl (m), and how far the
+   * cursor's motion carries grains along with it (per metre along the ray; smoke only).
+   */
+  pointer: {
+    car: { radius: 0.6, strength: 0.4, swirl: 0.05, push: 0 },
+    smoke: { radius: 1.5, strength: 0.9, swirl: 0.25, push: 1.2 },
+    terrain: { radius: 1.2, strength: 0.6, swirl: 0.1, push: 0 },
+    /** Remembered cursor positions and how long each one keeps pushing (s). */
+    trail: 8,
+    life: 0.6,
+    /** A new trail sample starts after this long (s) once the cursor has moved this far (NDC). */
+    spacing: 0.06,
+    minMove: 0.01,
+    /** Strength of a resting cursor, gain per screen height per second of speed, and its cap. */
+    rest: 0.25,
+    speedGain: 0.6,
+    maxStrength: 1.4,
+    /** Smoothing of the cursor speed (1/s) and how much of its motion (s) the smoke is carried. */
+    speedDamping: 12,
+    pushTime: 0.15,
+  },
+
   /** Tyre smoke from the rear wheels during the slide. */
   smoke: {
     /** Slide progress range that emits smoke. */

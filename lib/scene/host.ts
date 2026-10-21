@@ -6,6 +6,8 @@ export type SceneHost = {
   setProgress(p: number): void;
   setReducedMotion(value: boolean): void;
   setVisible(value: boolean): void;
+  /** Cursor in normalised device coordinates. */
+  setPointer(x: number, y: number, active: boolean): void;
   /** Re-reads the container size. */
   resize(): void;
   destroy(): void;
@@ -81,6 +83,7 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
       else if (message.type === "resize") engine.resize(message.width, message.height, message.dpr);
       else if (message.type === "reducedMotion") engine.setReducedMotion(message.value);
       else if (message.type === "visible") engine.setVisible(message.value);
+      else if (message.type === "pointer") engine.setPointer(message.x, message.y, message.active);
     };
     teardown = () => engine?.dispose();
     import("./engine")
@@ -141,6 +144,9 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
     setReducedMotion(value) {
       reduced = value;
       send({ type: "reducedMotion", value });
+    },
+    setPointer(x, y, active) {
+      send({ type: "pointer", x, y, active });
     },
     setVisible(value) {
       visible = value;

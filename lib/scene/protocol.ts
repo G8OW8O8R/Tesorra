@@ -28,4 +28,6 @@ export type HostMessage =
   | { type: "progress"; value: number }
   | { type: "reducedMotion"; value: boolean }
   | { type: "visible"; value: boolean }
+  /** Cursor in normalised device coordinates; `active` is false when it left or the finger lifted. */
+  | { type: "pointer"; x: number; y: number; active: boolean }
   | { type: "dispose" };
