@@ -143,7 +143,7 @@ export const sceneTuning = {
     terrain: { colour: "ground", size: 0.03, intensity: 0.48, whiteMix: 0, spark: 0.01, twinkle: 0.3, twinkleSpeed: 1.2, sharpPx: 1.5 },
     fog: { colour: "#2b5d7a", size: 3.4, intensity: 0.007, whiteMix: 0, spark: 0, twinkle: 0, twinkleSpeed: 0, sharpPx: 400 },
     stars: { colour: "#c4d8ff", size: 0.5, intensity: 0.6, whiteMix: 0.4, spark: 0.08, twinkle: 0.45, twinkleSpeed: 1.3, sharpPx: 2 },
-    car: { colour: "chapter", size: 0.011, intensity: 0.14, whiteMix: 0, spark: 0.03, twinkle: 0.22, twinkleSpeed: 4.5, sharpPx: 1.6 },
+    car: { colour: "chapter", size: 0.011, intensity: 0.084, whiteMix: 0, spark: 0.03, twinkle: 0.22, twinkleSpeed: 4.5, sharpPx: 1.6 },
     smoke: { colour: "chapter", size: 0.02, intensity: 0.25, whiteMix: 0.62, spark: 0.01, twinkle: 0.1, twinkleSpeed: 1.1, sharpPx: 1.8 },
   },
 
@@ -162,8 +162,8 @@ export const sceneTuning = {
    * so dense panels saturate instead of turning white). It is added after bloom at full resolution
    * to stay crisp, and feeds the bloom separately with its own gain.
    */
-  carCeiling: 2,
-  carBloom: 1.8,
+  carCeiling: 1.2,
+  carBloom: 1.08,
 
   track: {
     /** Half the road width. */
@@ -325,27 +325,33 @@ export const sceneTuning = {
   },
 
   /**
-   * Cursor (or a dragging finger) parts the dust like sand. Per layer: radius around the cursor
-   * ray (m), how far grains at the centre are shoved aside (m), extra swirl (m), and how far the
-   * cursor's motion carries grains along with it (per metre along the ray; smoke only).
+   * Cursor (or a dragging finger) throws up the car's and the smoke's grains, simulated on the GPU:
+   * each grain springs back to rest with damping. Per layer: radius around the cursor ray (m),
+   * sideways throw per m/s of cursor speed, share of the cursor's own motion carried along, and a
+   * gentle sideways push while the cursor rests (m/s); then spring stiffness (1/s²), damping
+   * (1/s), how long after the last push the layer keeps simulating (s), and the share of grains
+   * with no spring at all, which simply drift off. Phones simulate the car only.
    */
   pointer: {
-    car: { radius: 0.6, strength: 0.4, swirl: 0.05, push: 0 },
-    smoke: { radius: 1.5, strength: 0.9, swirl: 0.25, push: 1.2 },
-    terrain: { radius: 1.2, strength: 0.6, swirl: 0.1, push: 0 },
-    /** Remembered cursor positions and how long each one keeps pushing (s). */
-    trail: 8,
-    life: 0.6,
-    /** A new trail sample starts after this long (s) once the cursor has moved this far (NDC). */
-    spacing: 0.06,
-    minMove: 0.01,
-    /** Strength of a resting cursor, gain per screen height per second of speed, and its cap. */
-    rest: 0.25,
-    speedGain: 0.6,
-    maxStrength: 1.4,
-    /** Smoothing of the cursor speed (1/s) and how much of its motion (s) the smoke is carried. */
-    speedDamping: 12,
-    pushTime: 0.15,
+    car: { radius: 0.45, lateral: 0.3, carry: 0.14, rest: 0.05, spring: 18, damping: 5, settle: 1.6, drift: 0 },
+    smoke: { radius: 1, lateral: 0.35, carry: 0.28, rest: 0.05, spring: 6, damping: 2.6, settle: 3, drift: 0.3 },
+    /** Terrain is only nudged aside, without state: radius (m, Gaussian) and the shove at the centre (m). */
+    terrain: { radius: 0.8, shove: 0.3 },
+    /** How quickly the terrain nudge fades in and out as the cursor enters and leaves (1/s). */
+    terrainFade: 8,
+    /** How quickly grains under the cursor take up its push (1/s). */
+    coupling: 30,
+    /** Curl swirl on moving grains, and their top speed (m/s). */
+    swirl: 0.6,
+    maxSpeed: 8,
+    /** The cursor is extrapolated up to this far ahead (ms); older than `still` counts as resting. */
+    extrapolate: 50,
+    still: 120,
+    /** Simulation steps per second at most (whatever the display rate), and its longest step (s). */
+    rate: 60,
+    maxStep: 1 / 30,
+    /** State texture width (height follows the number of grains). */
+    textureWidth: 1024,
   },
 
   /** Tyre smoke from the rear wheels during the slide. */

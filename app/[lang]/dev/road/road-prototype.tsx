@@ -31,7 +31,7 @@ function readoutText({ p, stats }: { p: number; stats: SceneStats | null }) {
 }
 
 export function RoadPrototype() {
-  const { timeline } = getRide();
+  const { timeline, track } = getRide();
   const scene = useRef<DustSceneHandle>(null);
   const ride = useRef<HTMLDivElement>(null);
   const slider = useRef<HTMLInputElement>(null);
@@ -112,7 +112,7 @@ export function RoadPrototype() {
         <div className="relative flex-1 pt-4">
           {timeline.stopCentres.map((c, i) => (
             <span
-              key={c}
+              key={track.stops[i].id}
               aria-hidden
               className="label absolute top-0 -translate-x-1/2 text-[10px] text-muted"
               style={{ left: `${c * 100}%` }}

@@ -1,9 +1,10 @@
-import { sceneTuning } from "@/lib/scene-tuning";
-
 /**
  * GLSL for the dust scene. Particles are instanced quads: each one is projected,
  * sized by depth, widened by depth of field and stretched along its on-screen motion
  * since the last frame, then splatted additively into a half-float buffer.
+ * The car and the smoke also carry a simulated offset (spring back to rest, kicked by the cursor),
+ * stepped on the GPU in ping-pong textures; their rest positions come from shared functions so
+ * the simulation and the draw agree exactly.
  */
 
 const SWIRL = /* glsl */ `
@@ -26,36 +27,109 @@ vec3 swirl(vec3 p, float t) {
 }
 `;
 
-// Cursor trail: grains near any remembered cursor ray move away from it at right angles,
-// falling off smoothly with distance, with a little swirl so they part like sand. Weights fade
-// on the CPU, so the furrow closes up again without any per-particle state.
-const POINTER = /* glsl */ `
-#define TRAIL ${sceneTuning.pointer.trail}
-uniform vec4 uTrailOrigin[TRAIL];
-uniform vec4 uTrailRay[TRAIL];
-uniform vec4 uTrailPush[TRAIL];
-uniform vec4 uPointer;
+/** Rest position of a body grain (expects uTime and the SWIRL helpers). */
+const BODY = /* glsl */ `
+uniform mat4 uModel;
+uniform float uForm;
+uniform vec4 uFormShape;
+uniform float uShimmer;
+uniform int uCopies;
+uniform float uSpread;
+uniform float uEdgeTighten;
 
-vec3 pointerOffset(vec3 p) {
-  vec3 offset = vec3(0.0);
-  if (uPointer.x <= 0.0) return offset;
-  for (int i = 0; i < TRAIL; i++) {
-    float w = uTrailOrigin[i].w;
-    if (w <= 0.0) continue;
-    vec3 dir = uTrailRay[i].xyz;
-    vec3 rel = p - uTrailOrigin[i].xyz;
-    float along = dot(rel, dir);
-    if (along <= 0.0) continue;
-    vec3 perp = rel - dir * along;
-    float dist = length(perp);
-    float k = w * (1.0 - smoothstep(0.0, uPointer.x, dist));
-    if (k <= 0.0) continue;
-    vec3 away = dist > 1e-4 ? perp / dist : normalize(cross(dir, vec3(0.0, 1.0, 0.0)) + 1e-4);
-    offset += away * k * uPointer.y;
-    offset += swirl(p * 3.0, uTime * 1.5) * k * uPointer.z;
-    offset += uTrailPush[i].xyz * along * k * uPointer.w;
-  }
-  return offset;
+// Model-space position of one body grain: a copy of its model point jittered across the local
+// surface (less on edges, where normals are unreliable), flown in from scattered dust while the
+// body assembles. t is the grain's own assembly time, e its eased form.
+vec3 bodyLocal(vec3 pos, vec4 seed, vec4 frame, float copy, out float t, out float e) {
+  vec3 n = normalize(frame.xyz + vec3(0.0, 1e-5, 0.0));
+  vec3 t1 = normalize(cross(n, abs(n.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
+  vec3 t2 = cross(n, t1);
+  vec3 j = hash3(seed.xy * 31.0 + copy * 7.13) * 2.0 - 1.0;
+  float spread = uSpread * (1.0 - uEdgeTighten * frame.w);
+  vec3 target = pos + step(0.5, copy) * (t1 * j.x + t2 * j.y + n * j.z * 0.2) * spread;
+
+  vec3 h = hash3(seed.xy * 17.0 + copy * 3.7);
+  t = clamp((uForm - h.x * uFormShape.w) / (1.0 - uFormShape.w), 0.0, 1.0);
+  e = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+  vec3 dir = normalize(h * 2.0 - 1.0 + vec3(0.0, 0.0, 1e-3));
+  vec3 scatter = target + dir * uFormShape.x * (0.4 + h.y) + vec3(0.0, uFormShape.y * h.z, 0.0);
+  vec3 local = mix(scatter, target, e);
+  return local + swirl(target * 2.5, uTime * 0.6) * (uFormShape.z * (1.0 - e) + uShimmer);
+}
+`;
+
+/**
+ * Rest position of a smoke grain (expects uTime, uCamPos and the SWIRL helpers). A grain's birth
+ * is a point on the slide, so whether it exists, where it started and how far it has grown all
+ * follow from scroll progress; time only churns it.
+ */
+const SMOKE = /* glsl */ `
+uniform highp sampler2D uEmit;
+uniform int uEmitCount;
+uniform float uSlide;
+uniform vec4 uSmokeA;
+uniform vec4 uSmokeB;
+uniform vec2 uSmokeSize;
+uniform vec2 uSmokeLife;
+uniform vec2 uSmokeFade;
+
+vec4 emitter(int row, float b) {
+  float x = clamp(b, 0.0, 1.0) * float(uEmitCount - 1);
+  int i = int(floor(x));
+  int j = min(i + 1, uEmitCount - 1);
+  return mix(texelFetch(uEmit, ivec2(i, row), 0), texelFetch(uEmit, ivec2(j, row), 0), x - float(i));
+}
+
+// pos = (birth along the slide, wheel 0/1, unused). alpha is 0 before the grain is born.
+vec3 smokeWorld(vec3 pos, vec4 seed, out float alpha, out float size) {
+  float birth = pos.x;
+  float age = uSlide - birth;
+  alpha = 0.0;
+  size = 1.0;
+  if (age <= 0.0) return vec3(0.0);
+  float e = clamp(age / uSmokeA.x, 0.0, 1.0);
+  float grow = 1.0 - (1.0 - e) * (1.0 - e);
+  vec4 origin = emitter(int(pos.y), birth);
+  vec3 back = emitter(2, birth).xyz;
+
+  vec3 h = hash3(seed.xy * 23.0);
+  vec3 dir = normalize(hash3(seed.zw * 19.0) * 2.0 - 1.0 + vec3(0.0, 1e-3, 0.0));
+  float radius = mix(uSmokeA.y, uSmokeA.z, grow) * pow(h.x, 0.333);
+  vec3 p = origin.xyz + dir * radius - back * uSmokeB.w * grow;
+  p.y += uSmokeA.w * grow * (0.3 + h.y);
+  float amp = uSmokeB.x * grow / 3.0;
+  for (int k = 0; k < 3; k++) p += swirl(p * uSmokeB.y, uTime * uSmokeB.z) * amp;
+
+  // Soft ceiling above the road: height passes through up to 70% of it, then flattens out.
+  float ceiling = uSmokeLife.y;
+  float above = p.y - origin.w;
+  float knee = 0.7 * ceiling;
+  if (above > knee) above = knee + (ceiling - knee) * (1.0 - exp(-(above - knee) / (ceiling - knee)));
+  p.y = origin.w + max(above, 0.03);
+
+  size = mix(uSmokeSize.x, uSmokeSize.y, grow) * mix(0.7, 1.3, h.z);
+  alpha = smoothstep(0.0, 0.06, e) * (1.0 - 0.4 * grow);
+  alpha *= 1.0 - smoothstep(0.55 * uSmokeLife.x, uSmokeLife.x, age);
+  alpha *= smoothstep(uSmokeFade.x, uSmokeFade.y, distance(p, uCamPos));
+  return p;
+}
+`;
+
+/** Simulated offset and velocity of this instance, read by the draw. */
+const STATE = /* glsl */ `
+uniform highp sampler2D uSimOffset;
+uniform highp sampler2D uSimVelocity;
+uniform int uSimWidth;
+uniform float uSimOn;
+uniform float uDt;
+
+void simState(int id, out vec3 offset, out vec3 velocity) {
+  offset = vec3(0.0);
+  velocity = vec3(0.0);
+  if (uSimOn <= 0.0) return;
+  ivec2 px = ivec2(id % uSimWidth, id / uSimWidth);
+  offset = texelFetch(uSimOffset, px, 0).xyz;
+  velocity = texelFetch(uSimVelocity, px, 0).xyz;
 }
 `;
 
@@ -95,7 +169,6 @@ out float vHalf;
 out float vSoft;
 
 ${SWIRL}
-${POINTER}
 `;
 
 const PARTICLE_MAIN = /* glsl */ `
@@ -178,126 +251,195 @@ function particleVertex(body: string) {
   return PARTICLE_HEAD + body + PARTICLE_MAIN;
 }
 
-/** Track, edges, ground, fog and stars: fixed positions, optional camera-follow and churn. */
+/**
+ * Track, edges, terrain, fog and stars: fixed positions, optional camera-follow and churn.
+ * Terrain grains near the cursor ray are nudged aside with a Gaussian falloff, without state.
+ */
 export const staticVertex = particleVertex(/* glsl */ `
 uniform vec3 uPrevCamPos;
 uniform float uFollow;
 uniform vec3 uDrift;
+uniform vec2 uNudge;
+uniform vec3 uRayOrigin;
+uniform vec3 uRayDir;
+
+vec3 nudge(vec3 p) {
+  vec3 rel = p - uRayOrigin;
+  float along = dot(rel, uRayDir);
+  if (along <= 0.0) return vec3(0.0);
+  vec3 perp = rel - uRayDir * along;
+  float dist = length(perp);
+  float r = dist / uNudge.x;
+  if (r > 3.0 || dist < 1e-4) return vec3(0.0);
+  return perp / dist * uNudge.y * exp(-2.0 * r * r);
+}
 
 vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
   vec3 p = aPos;
   if (uDrift.x > 0.0) p += swirl(aPos * uDrift.y, uTime * uDrift.z) * uDrift.x;
+  if (uNudge.y > 0.0) p += nudge(p);
   sizeMul = mix(0.6, 1.4, fract(aSeed.x * 7.31 + aSeed.y * 3.17));
-  vec3 shove = pointerOffset(p);
-  prevWorld = p + shove + uPrevCamPos * uFollow;
-  return p + shove + uCamPos * uFollow;
+  prevWorld = p + uPrevCamPos * uFollow;
+  return p + uCamPos * uFollow;
 }
 `);
 
 /**
- * Vehicle point cloud: assembles from scattered dust with per-particle delays and swirl.
- * Each model point is drawn `uCopies` times (attribute divisor); copies after the first are
- * jittered across the local surface plane, so the body fills in without a bigger file.
- * Points on edges and creases (aFrame.w) glow brighter and are jittered less.
+ * Vehicle point cloud. Each model point is drawn `uCopies` times (attribute divisor); points on
+ * edges and creases (aFrame.w) glow brighter. Grains the cursor throws streak along their motion.
  */
 export const bodyVertex = particleVertex(/* glsl */ `
 layout(location = 3) in vec4 aFrame;
 
-uniform mat4 uModel;
 uniform mat4 uPrevModel;
-uniform float uForm;
-uniform vec4 uFormShape;
-uniform float uShimmer;
-uniform int uCopies;
-uniform float uSpread;
 uniform float uEdgeBoost;
-uniform float uEdgeTighten;
+${BODY}
+${STATE}
 
 vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
   float copy = float(gl_InstanceID % uCopies);
-  vec3 n = normalize(aFrame.xyz + vec3(0.0, 1e-5, 0.0));
-  vec3 t1 = normalize(cross(n, abs(n.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
-  vec3 t2 = cross(n, t1);
-  vec3 j = hash3(aSeed.xy * 31.0 + copy * 7.13) * 2.0 - 1.0;
-  // Normals are unreliable on edges, so copies there stay tight to keep the edge crisp.
-  float spread = uSpread * (1.0 - uEdgeTighten * aFrame.w);
-  vec3 target = aPos + step(0.5, copy) * (t1 * j.x + t2 * j.y + n * j.z * 0.2) * spread;
-
-  vec3 h = hash3(aSeed.xy * 17.0 + copy * 3.7);
-  float t = clamp((uForm - h.x * uFormShape.w) / (1.0 - uFormShape.w), 0.0, 1.0);
-  float e = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
-  vec3 dir = normalize(h * 2.0 - 1.0 + vec3(0.0, 0.0, 1e-3));
-  vec3 scatter = target + dir * uFormShape.x * (0.4 + h.y) + vec3(0.0, uFormShape.y * h.z, 0.0);
-  vec3 local = mix(scatter, target, e);
-  local += swirl(target * 2.5, uTime * 0.6) * (uFormShape.z * (1.0 - e) + uShimmer);
+  float t;
+  float e;
+  vec3 local = bodyLocal(aPos, aSeed, aFrame, copy, t, e);
   alphaMul = smoothstep(0.0, 0.35, t) * mix(0.4, 1.0, e) * (1.0 + uEdgeBoost * aFrame.w);
   whiteMix = mix(whiteMix, 0.0, 1.0 - e);
-  sizeMul = mix(0.8, 1.2, h.z);
-  vec3 world = (uModel * vec4(local, 1.0)).xyz;
-  vec3 shove = pointerOffset(world);
-  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz + shove;
-  return world + shove;
+  sizeMul = mix(0.8, 1.2, hash3(aSeed.xy * 17.0 + copy * 3.7).z);
+  vec3 offset;
+  vec3 velocity;
+  simState(gl_InstanceID, offset, velocity);
+  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz + offset - velocity * uDt;
+  return (uModel * vec4(local, 1.0)).xyz + offset;
+}
+`);
+
+/** Tyre smoke: rest position from the slide, plus its simulated offset. */
+export const smokeVertex = particleVertex(/* glsl */ `
+${SMOKE}
+${STATE}
+
+vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
+  float alpha;
+  float size;
+  vec3 p = smokeWorld(aPos, aSeed, alpha, size);
+  alphaMul = alpha;
+  sizeMul = size;
+  vec3 offset;
+  vec3 velocity;
+  simState(gl_InstanceID, offset, velocity);
+  prevWorld = p + offset - velocity * uDt;
+  return p + offset;
 }
 `);
 
 /**
- * Tyre smoke without state: a particle's birth is a point on the slide, so whether it exists,
- * where it started and how far it has grown all follow from scroll progress. Time only churns it.
+ * One simulation step per texel (one texel per drawn instance): semi-implicit spring back to
+ * rest with damping, a kick from the cursor ray (aside, plus along the cursor's motion, scaled by
+ * its speed), and a little curl swirl on moving grains — sand thrown up that settles back.
  */
-export const smokeVertex = particleVertex(/* glsl */ `
-uniform highp sampler2D uEmit;
-uniform int uEmitCount;
-uniform float uSlide;
-uniform vec4 uSmokeA;
-uniform vec4 uSmokeB;
-uniform vec2 uSmokeSize;
-uniform vec2 uSmokeLife;
-uniform vec2 uSmokeFade;
+const SIM_HEAD = /* glsl */ `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
 
-vec4 emitter(int row, float b) {
-  float x = clamp(b, 0.0, 1.0) * float(uEmitCount - 1);
-  int i = int(floor(x));
-  int j = min(i + 1, uEmitCount - 1);
-  return mix(texelFetch(uEmit, ivec2(i, row), 0), texelFetch(uEmit, ivec2(j, row), 0), x - float(i));
-}
+uniform float uTime;
+uniform vec3 uCamPos;
+uniform sampler2D uOffset;
+uniform sampler2D uVelocity;
+uniform sampler2D uDataPos;
+uniform sampler2D uDataSeed;
+uniform int uWidth;
+uniform int uCount;
+uniform float uDt;
+uniform vec4 uSpring;
+uniform vec4 uCursor;
+uniform float uCoupling;
+uniform float uDrift;
+uniform vec3 uRayOrigin;
+uniform vec3 uRayDir;
+uniform vec3 uRayVel;
 
-vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
-  float birth = aPos.x;
-  float age = uSlide - birth;
-  prevWorld = vec3(0.0);
-  if (age <= 0.0) {
-    alphaMul = 0.0;
-    return vec3(0.0);
+layout(location = 0) out vec4 outOffset;
+layout(location = 1) out vec4 outVelocity;
+
+${SWIRL}
+
+// spring scales the stiffness for this grain (0 = it drifts off and stays there).
+void advance(vec3 rest, vec3 offset, vec3 velocity, float spring) {
+  vec3 p = rest + offset;
+  if (uCursor.x > 0.0) {
+    vec3 rel = p - uRayOrigin;
+    float along = dot(rel, uRayDir);
+    if (along > 0.0) {
+      vec3 perp = rel - uRayDir * along;
+      float dist = length(perp);
+      float r = dist / uCursor.x;
+      if (r < 3.0) {
+        float fall = exp(-2.0 * r * r);
+        vec3 away = dist > 1e-4 ? perp / dist : normalize(cross(uRayDir, vec3(0.0, 1.0, 0.0)) + 1e-4);
+        vec3 cursorVelocity = uRayVel * along;
+        vec3 target = away * (uCursor.w + length(cursorVelocity) * uCursor.y) + cursorVelocity * uCursor.z;
+        velocity += (target - velocity) * fall * (1.0 - exp(-uCoupling * uDt));
+      }
+    }
   }
-  float e = clamp(age / uSmokeA.x, 0.0, 1.0);
-  float grow = 1.0 - (1.0 - e) * (1.0 - e);
-  vec4 origin = emitter(int(aPos.y), birth);
-  vec3 back = emitter(2, birth).xyz;
-
-  vec3 h = hash3(aSeed.xy * 23.0);
-  vec3 dir = normalize(hash3(aSeed.zw * 19.0) * 2.0 - 1.0 + vec3(0.0, 1e-3, 0.0));
-  float radius = mix(uSmokeA.y, uSmokeA.z, grow) * pow(h.x, 0.333);
-  vec3 p = origin.xyz + dir * radius - back * uSmokeB.w * grow;
-  p.y += uSmokeA.w * grow * (0.3 + h.y);
-  float amp = uSmokeB.x * grow / 3.0;
-  for (int k = 0; k < 3; k++) p += swirl(p * uSmokeB.y, uTime * uSmokeB.z) * amp;
-
-  // Soft ceiling above the road: height passes through up to 70% of it, then flattens out.
-  float ceiling = uSmokeLife.y;
-  float above = p.y - origin.w;
-  float knee = 0.7 * ceiling;
-  if (above > knee) above = knee + (ceiling - knee) * (1.0 - exp(-(above - knee) / (ceiling - knee)));
-  p.y = origin.w + max(above, 0.03);
-
-  sizeMul = mix(uSmokeSize.x, uSmokeSize.y, grow) * mix(0.7, 1.3, h.z);
-  alphaMul = smoothstep(0.0, 0.06, e) * (1.0 - 0.4 * grow);
-  alphaMul *= 1.0 - smoothstep(0.55 * uSmokeLife.x, uSmokeLife.x, age);
-  alphaMul *= smoothstep(uSmokeFade.x, uSmokeFade.y, distance(p, uCamPos));
-  p += pointerOffset(p);
-  prevWorld = p;
-  return p;
+  velocity += (-uSpring.x * spring * offset - uSpring.y * velocity) * uDt;
+  velocity += swirl(p * 3.0, uTime * 1.5) * uSpring.z * length(velocity) * uDt;
+  float speed = length(velocity);
+  if (speed > uSpring.w) velocity *= uSpring.w / speed;
+  offset += velocity * uDt;
+  outOffset = vec4(offset, 0.0);
+  outVelocity = vec4(velocity, 0.0);
 }
-`);
+`;
+
+export const bodySimFragment = /* glsl */ `${SIM_HEAD}
+${BODY}
+uniform sampler2D uDataFrame;
+
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  int id = px.y * uWidth + px.x;
+  if (id >= uCount) {
+    outOffset = vec4(0.0);
+    outVelocity = vec4(0.0);
+    return;
+  }
+  int entry = id / uCopies;
+  ivec2 dp = ivec2(entry % uWidth, entry / uWidth);
+  float t;
+  float e;
+  vec3 local = bodyLocal(
+    texelFetch(uDataPos, dp, 0).xyz,
+    texelFetch(uDataSeed, dp, 0),
+    texelFetch(uDataFrame, dp, 0),
+    float(id - entry * uCopies),
+    t,
+    e
+  );
+  advance((uModel * vec4(local, 1.0)).xyz, texelFetch(uOffset, px, 0).xyz, texelFetch(uVelocity, px, 0).xyz, 1.0);
+}
+`;
+
+export const smokeSimFragment = /* glsl */ `${SIM_HEAD}
+${SMOKE}
+
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  int id = px.y * uWidth + px.x;
+  float alpha;
+  float size;
+  vec4 seed = texelFetch(uDataSeed, px, 0);
+  vec3 rest = id < uCount ? smokeWorld(texelFetch(uDataPos, px, 0).xyz, seed, alpha, size) : vec3(0.0);
+  // Unborn grains (and padding) stay at rest.
+  if (id >= uCount || alpha <= 0.0) {
+    outOffset = vec4(0.0);
+    outVelocity = vec4(0.0);
+    return;
+  }
+  float spring = step(uDrift, fract(seed.z * 13.7 + seed.w * 5.3));
+  advance(rest, texelFetch(uOffset, px, 0).xyz, texelFetch(uVelocity, px, 0).xyz, spring);
+}
+`;
 
 export const particleFragment = /* glsl */ `#version 300 es
 precision highp float;

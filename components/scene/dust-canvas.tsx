@@ -65,10 +65,19 @@ export function DustCanvas({
     const onVisibility = () => scene.setVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", onVisibility);
 
-    // Mouse and pen part the dust on hover; a finger only while it drags.
+    // Mouse and pen throw up the dust on hover; a finger only while it drags. Every event goes
+    // straight to the engine with its velocity; the engine extrapolates to its own frame.
     let dragging = false;
-    const toScene = (e: PointerEvent, active: boolean) =>
-      scene.setPointer((e.clientX / window.innerWidth) * 2 - 1, 1 - (e.clientY / window.innerHeight) * 2, active);
+    let last: { x: number; y: number; t: number } | null = null;
+    const toScene = (e: PointerEvent, active: boolean) => {
+      const x = (e.clientX / window.innerWidth) * 2 - 1;
+      const y = 1 - (e.clientY / window.innerHeight) * 2;
+      const dt = last ? Math.max(4, e.timeStamp - last.t) / 1000 : 0;
+      const vx = last && active ? (x - last.x) / dt : 0;
+      const vy = last && active ? (y - last.y) / dt : 0;
+      last = active ? { x, y, t: e.timeStamp } : null;
+      scene.setPointer({ x, y, vx, vy, at: performance.timeOrigin + e.timeStamp, active });
+    };
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === "touch") {
         if (dragging) toScene(e, true);
@@ -84,7 +93,10 @@ export function DustCanvas({
       dragging = false;
       toScene(e, false);
     };
-    const onLeave = () => scene.setPointer(0, 0, false);
+    const onLeave = () => {
+      last = null;
+      scene.setPointer({ x: 0, y: 0, vx: 0, vy: 0, at: performance.timeOrigin + performance.now(), active: false });
+    };
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("pointerdown", onDown, { passive: true });
     window.addEventListener("pointerup", onUp, { passive: true });

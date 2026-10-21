@@ -237,3 +237,27 @@ export function invert(out: Mat4, m: Mat4) {
   out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * k;
   return true;
 }
+
+/** Point at normalised device coordinates (x, y, z) through an inverse view-projection matrix. */
+export function unproject(inverse: Mat4, x: number, y: number, z: number): Vec3 {
+  const w = inverse[3] * x + inverse[7] * y + inverse[11] * z + inverse[15];
+  return [
+    (inverse[0] * x + inverse[4] * y + inverse[8] * z + inverse[12]) / w,
+    (inverse[1] * x + inverse[5] * y + inverse[9] * z + inverse[13]) / w,
+    (inverse[2] * x + inverse[6] * y + inverse[10] * z + inverse[14]) / w,
+  ];
+}
+
+/** Whether a sphere reaches into the frustum of a view-projection matrix (planes taken from its rows). */
+export function sphereInFrustum(m: Mat4, centre: Vec3, radius: number) {
+  for (let i = 0; i < 6; i++) {
+    const row = i >> 1;
+    const s = i & 1 ? -1 : 1;
+    const a = m[3] + s * m[row];
+    const b = m[7] + s * m[4 + row];
+    const c = m[11] + s * m[8 + row];
+    const d = m[15] + s * m[12 + row];
+    if ((a * centre[0] + b * centre[1] + c * centre[2] + d) / Math.hypot(a, b, c) < -radius) return false;
+  }
+  return true;
+}

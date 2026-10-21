@@ -13,6 +13,13 @@ export type EngineOptions = {
   stats: boolean;
 };
 
+/**
+ * Raw cursor in normalised device coordinates with its velocity (NDC per second) and the absolute
+ * time of the event (timeOrigin + timeStamp, ms), so the engine can extrapolate to its own frame.
+ * `active` is false when it left the window or the finger lifted.
+ */
+export type PointerState = { x: number; y: number; vx: number; vy: number; at: number; active: boolean };
+
 /** Frames per second, points drawn per frame, and the adaptive density (share of the dense layers). */
 export type SceneStats = { fps: number; points: number; density: number };
 
@@ -28,6 +35,5 @@ export type HostMessage =
   | { type: "progress"; value: number }
   | { type: "reducedMotion"; value: boolean }
   | { type: "visible"; value: boolean }
-  /** Cursor in normalised device coordinates; `active` is false when it left or the finger lifted. */
-  | { type: "pointer"; x: number; y: number; active: boolean }
+  | { type: "pointer"; pointer: PointerState }
   | { type: "dispose" };
