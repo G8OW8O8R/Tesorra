@@ -1,6 +1,14 @@
 import { sceneTuning } from "@/lib/scene-tuning";
 import type { DustEngine } from "./engine";
-import type { EngineEvent, EngineOptions, HostMessage, PointerState, SceneStats, SceneStatus } from "./protocol";
+import type {
+  EngineEvent,
+  EngineOptions,
+  HostMessage,
+  PointerState,
+  SceneStats,
+  SceneFrame,
+  SceneStatus,
+} from "./protocol";
 
 export type SceneHost = {
   setProgress(p: number): void;
@@ -17,8 +25,11 @@ type HostOptions = {
   mobile: boolean;
   reducedMotion: boolean;
   stats?: boolean;
+  /** How long an intro still covers the scene (ms). */
+  warmup?: number;
   onStatus(status: SceneStatus): void;
   onStats?(stats: SceneStats): void;
+  onFrame?(frame: SceneFrame): void;
 };
 
 /**
@@ -49,13 +60,15 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
     ...size(),
     mobile: options.mobile,
     reducedMotion: reduced,
-    modelUrl: new URL(sceneTuning.car.model, window.location.href).href,
+    baseUrl: window.location.href,
     stats: Boolean(options.stats),
+    warmup: options.warmup ?? 0,
   });
 
   const onEvent = (event: EngineEvent) => {
     if (destroyed) return;
     if (event.type === "stats") options.onStats?.(event.stats);
+    else if (event.type === "frame") options.onFrame?.(event.data);
     else options.onStatus(event.status);
   };
 

@@ -1,12 +1,18 @@
-import { sceneTuning } from "@/lib/scene-tuning";
+import { sceneTuning, type BodyId, type StopId } from "@/lib/scene-tuning";
 import {
-  carPose,
+  bodyPoses,
   carPosition,
   cameraPose,
   chapterColour,
+  formulaAt,
   getRide,
+  motoAt,
+  nearLive,
   slidePose,
+  startLights,
   stillFrame,
+  storeProducts,
+  type BodyPose,
 } from "./choreography";
 import {
   createInstances,
@@ -32,16 +38,28 @@ import {
   multiply,
   normalize,
   perspective,
+  random,
   sphereInFrustum,
   sub,
   transformDirection,
   transformPoint,
   unproject,
+  type Mat4,
   type Vec3,
 } from "./math";
-import { createSimulation, resetSimulation, type Simulation } from "./sim";
+import {
+  createSimData,
+  createSimPool,
+  createSimulation,
+  resetSimulation,
+  type SimPool,
+  type SimSlot,
+  type SimState,
+  type Simulation,
+} from "./sim";
 import { buildSmoke, buildStars, buildTrackClouds, sampleModel, type ModelBounds } from "./particles";
 import type { EngineEvent, EngineOptions, PointerState } from "./protocol";
+import { buildGrid, gantryShape, lampShapes, riderShape } from "./shapes";
 import {
   bodySimFragment,
   bodyVertex,
@@ -64,9 +82,83 @@ type Look = (typeof sceneTuning.layers)[keyof typeof sceneTuning.layers];
 const ADAPTIVE = new Set<string>(["road", "edge", "terrain"]);
 
 const T = sceneTuning;
-const STATIC_LAYERS = ["stars", "fog", "terrain", "road", "edge"] as const;
+const STATIC_LAYERS = ["stars", "fog", "terrain", "road", "edge", "grid"] as const;
 /** Bounds used until the model arrives (or if it never does). */
 const FALLBACK_BOUNDS: ModelBounds = { min: [-1, -0.3, -0.42], max: [1, 0.3, 0.42] };
+
+/** Bodies in loading order, and the stop whose cursor simulation each one shares. */
+const BODIES: BodyId[] = ["car", "formula", "moto", "gantry"];
+const GROUP: Record<BodyId, StopId> = { car: "drift", formula: "formula", moto: "moto", gantry: "live" };
+
+type BodySpec = {
+  scale: number;
+  copies: number;
+  copySpread: number;
+  edgeTighten: number;
+  edgeBoost: number;
+  neighbours: number;
+  edgeExtra: number;
+  shimmer: number;
+  formSpread: number;
+  formLift: number;
+  formSwirl: number;
+  formDelay: number;
+  glow: number;
+};
+
+type Body = {
+  id: BodyId;
+  spec: BodySpec;
+  group: StopId;
+  entries: number;
+  inst: Instances | null;
+  /** Average gap between neighbouring model points, for jittering the copies. */
+  spacing: number;
+  bounds: ModelBounds;
+  /** Farthest model point from the centre (model units). */
+  extent: number;
+  slot: SimSlot | null;
+  model: Mat4;
+  prevModel: Mat4;
+  centre: Vec3;
+  form: number;
+  radius: number;
+  formed: boolean;
+  drawn: boolean;
+};
+
+type EmitterSpec = {
+  emit: readonly [number, number];
+  grow: number;
+  life: number;
+  spread: readonly [number, number];
+  rise: number;
+  kick: number;
+  swirl: readonly [number, number, number];
+  size: readonly [number, number];
+  cameraFade: readonly [number, number];
+  samples: number;
+  streak: number;
+};
+
+/** Grains born along a body's run: tyre smoke, the formula's wake, the knee sparks. */
+type Emitter = {
+  spec: EmitterSpec;
+  look: Look;
+  body: BodyId;
+  inst: Instances;
+  tex: WebGLTexture;
+  ready: boolean;
+  /** Smoke rises to a soft ceiling this high above the road (m). */
+  ceiling: number;
+  /** Sphere around everything the grains can reach. */
+  bounds: { centre: Vec3; radius: number };
+  sim: Simulation | null;
+  slide: number;
+  live: boolean;
+  drawn: boolean;
+};
+type EmitterId = "smoke" | "wake" | "sparks";
 
 const schedule: (cb: (now: number) => void) => number =
   typeof requestAnimationFrame === "function"
@@ -74,6 +166,8 @@ const schedule: (cb: (now: number) => void) => number =
     : (cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number;
 const unschedule: (id: number) => void =
   typeof cancelAnimationFrame === "function" ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout(id);
+/** Longest slice of model analysis while the page's intro still covers the scene (ms). */
+const RUSH_SLICE = 40;
 
 /**
  * Renders the dust world: particles splatted additively into a half-float buffer,
@@ -117,17 +211,15 @@ export class DustEngine {
   private corners: WebGLBuffer;
   private screenVao: WebGLVertexArrayObject;
   private clouds: Record<(typeof STATIC_LAYERS)[number], Instances>;
-  private smoke: Instances;
-  private car: Instances | null = null;
-  /** Average gap between neighbouring model points, for jittering the copies. */
-  private carSpacing = 0;
-  private emitTex: WebGLTexture;
+  private bodies: Record<BodyId, Body>;
+  private emitters: Record<EmitterId, Emitter>;
+  /** The five start lights, in world space once the gantry has been built. */
+  private lamps: Instances[] = [];
   private hdr: Target | null = null;
-  /** The car is splatted here first and folded into the scene under a brightness ceiling. */
+  /** Bodies are splatted here first and folded into the scene under a brightness ceiling. */
   private carTarget: Target | null = null;
   private bloom: Target[] = [];
 
-  private bounds = FALLBACK_BOUNDS;
   private introStart = -1;
   private modelSettled = false;
   private announced = false;
@@ -146,35 +238,42 @@ export class DustEngine {
   private statsFrom = 0;
   /** Points drawn in the last frame. */
   private drawn = 0;
-  /** Share of the dense layers drawn, settled by measuring the first frames. */
+  /** Share of the dense layers and bodies drawn, settled by measuring the first frames. */
   private density = 1;
-  private adapt = { from: -1, frames: 0, windows: 0 };
-  /** GPU simulations for the car and the smoke (null where unsupported or not wanted). */
-  private carSim: Simulation | null = null;
-  private smokeSim: Simulation | null = null;
+  private adapt = { from: -1, frames: 0, windows: 0, steady: 0, short: 0, capped: false };
+  /** Every body is in: frame rates are measured only once the loading has stopped. */
+  private loaded = false;
+  /** Stops still to be drawn once off screen, so their programs and buffers are warm before the ride. */
+  private warmQueue: number[] = [];
+  /** When (s) the ride came near the live stop and its start lights began, or -1 while away. */
+  private lightsSince = -1;
+  /** Until then (performance.now) the intro covers the scene and analysis may hold the thread longer. */
+  private rushUntil = 0;
+  /**
+   * GPU state for the bodies' grains, shared by stops: the stop the cursor last stirred owns it
+   * (null where unsupported).
+   */
+  private pool: SimPool | null = null;
+  private owner: StopId | null = null;
   private cursor: PointerState = { x: 0, y: 0, vx: 0, vy: 0, at: 0, active: false };
   /** Time banked towards the next simulation step (s). */
   private simClock = 0;
   /** Per simulation: simulate until this time (s), and whether any grain may be off rest. */
-  private awake = { car: -1, smoke: -1 };
+  private awake = { bodies: -1, smoke: -1 };
   private lastSlide = 0;
-  private stirred = { car: false, smoke: false };
+  private stirred = { bodies: false, smoke: false };
   /** Terrain nudge strength, faded in and out with the cursor, and the last ray it followed. */
   private nudge = 0;
   private nudgeRay: [Vec3, Vec3] = [
     [0, 0, 0],
     [0, 0, -1],
   ];
-  /** Sphere around everything the smoke can reach. */
-  private smokeBounds: { centre: Vec3; radius: number } = { centre: [0, 0, 0], radius: 0 };
 
   private view = mat4();
   private proj = mat4();
   private viewProj = mat4();
   private inverse = mat4();
   private prevViewProj = mat4();
-  private model = mat4();
-  private prevModel = mat4();
   private prevEye: Vec3 = [0, 0, 0];
   private first = true;
 
@@ -216,9 +315,12 @@ export class DustEngine {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
     this.screenVao = gl.createVertexArray()!;
 
-    const counts = options.mobile ? T.counts.mobile : T.counts.desktop;
+    const device = options.mobile ? "mobile" : "desktop";
+    const counts = T.counts[device];
     const track = buildTrackClouds(this.ride.track, T.track, counts);
     const stars = buildStars(counts.stars, T.track);
+    const gantryAt = bodyPoses(this.ride, 0).gantry.d;
+    const grid = buildGrid(this.ride.track, gantryAt, T.live.grid, T.track, counts.grid);
     const make = (c: { positions: Float32Array; seeds: Float32Array; count: number }) =>
       createInstances(gl, this.corners, c.positions, c.seeds, c.count);
     this.clouds = {
@@ -227,18 +329,82 @@ export class DustEngine {
       terrain: make(track.terrain),
       road: make(track.road),
       edge: make(track.edge),
+      grid: make(grid),
     };
-    const smoke = buildSmoke(counts.smoke, T.smoke.emit);
-    this.smoke = make(smoke);
-    // Simulation needs half-float render targets; phones simulate the car only.
-    if (this.canSimulate && !options.mobile) {
-      this.smokeSim = createSimulation(gl, this.format, smoke.count, T.pointer.textureWidth, [
-        { values: smoke.positions, size: 3 },
-        { values: smoke.seeds, size: 4 },
-      ]);
+
+    // Bodies, each with a block of rows in the shared simulation state of its stop.
+    const width = T.pointer.textureWidth;
+    const rowsUsed: Partial<Record<StopId, number>> = {};
+    const bodies = {} as Record<BodyId, Body>;
+    for (const id of BODIES) {
+      const spec: BodySpec = id === "car" ? { ...T.car, glow: 1 } : T.bodies[id];
+      const entries = id === "car" ? counts.car : T.bodies[id].entries[device];
+      const group = GROUP[id];
+      const rows = Math.ceil((entries * spec.copies) / width);
+      const row = rowsUsed[group] ?? 0;
+      rowsUsed[group] = row + rows;
+      bodies[id] = {
+        id,
+        spec,
+        group,
+        entries,
+        inst: null,
+        spacing: 0,
+        bounds: FALLBACK_BOUNDS,
+        extent: 1.2,
+        slot: { row, rows, count: 0, data: [] },
+        model: mat4(),
+        prevModel: mat4(),
+        centre: [0, 0, 0],
+        form: 0,
+        radius: 0,
+        formed: false,
+        drawn: false,
+      };
     }
-    this.emitTex = gl.createTexture()!;
-    this.updateEmitters();
+    this.bodies = bodies;
+    // Desktop starts at the point budget of a busy stop and only climbs from there.
+    if (!options.mobile) {
+      const peak = counts.road + counts.edge + counts.terrain + counts.car * T.car.copies + counts.smoke;
+      this.density = clamp(T.render.adaptive.budget / peak, T.render.adaptive.min, 1);
+    }
+    // Phones get no grain simulation; the cursor only nudges the bodies aside there.
+    if (this.canSimulate && !options.mobile) {
+      this.pool = createSimPool(gl, this.format, width, Math.max(...(Object.values(rowsUsed) as number[])));
+    }
+
+    const smokeSpec: EmitterSpec = { ...T.smoke, streak: 0 };
+    const emitter = (spec: EmitterSpec, look: Look, body: BodyId, count: number, simulate: boolean): Emitter => {
+      const cloud = buildSmoke(count, spec.emit);
+      // Simulation needs half-float render targets; phones simulate the car only.
+      const sim =
+        simulate && this.canSimulate && !options.mobile
+          ? createSimulation(gl, this.format, cloud.count, width, [
+              { values: cloud.positions, size: 3 },
+              { values: cloud.seeds, size: 4 },
+            ])
+          : null;
+      return {
+        spec,
+        look,
+        body,
+        inst: make(cloud),
+        tex: gl.createTexture()!,
+        ready: false,
+        ceiling: 0,
+        bounds: { centre: [0, 0, 0], radius: 0 },
+        sim,
+        slide: 0,
+        live: false,
+        drawn: false,
+      };
+    };
+    this.emitters = {
+      smoke: emitter(smokeSpec, T.layers.smoke, "car", counts.smoke, true),
+      wake: emitter(T.wake, T.layers.wake, "formula", counts.wake, false),
+      sparks: emitter(T.sparks, T.layers.sparks, "moto", counts.sparks, false),
+    };
+    this.updateEmitter("smoke");
 
     const lost = (event: Event) => {
       event.preventDefault();
@@ -249,7 +415,8 @@ export class DustEngine {
     (canvas as EventTarget).addEventListener("contextlost", lost);
 
     this.resize(options.width, options.height, options.dpr);
-    void this.loadModel(options.modelUrl, counts.car);
+    this.rushUntil = performance.now() + options.warmup;
+    void this.loadBodies();
     this.start();
   }
 
@@ -260,7 +427,9 @@ export class DustEngine {
   setReducedMotion(value: boolean) {
     this.reduced = value;
     // Thrown grains settle at once when motion is turned down.
-    for (const sim of [this.carSim, this.smokeSim]) if (sim) resetSimulation(this.gl, sim);
+    if (this.pool) resetSimulation(this.gl, this.pool);
+    const smoke = this.emitters.smoke.sim;
+    if (smoke) resetSimulation(this.gl, smoke);
   }
 
   setPointer(pointer: PointerState) {
@@ -292,7 +461,7 @@ export class DustEngine {
     this.bloom = [];
     let bw = w;
     let bh = h;
-    for (let i = 0; i < T.render.bloom.levels; i++) {
+    for (let i = 0; i < T.render.bloom.levels[this.options.mobile ? "mobile" : "desktop"]; i++) {
       bw = Math.max(1, bw >> 1);
       bh = Math.max(1, bh >> 1);
       this.bloom.push(createTarget(gl, bw, bh, this.format));
@@ -321,6 +490,9 @@ export class DustEngine {
     if (!this.running) return;
     this.frameId = schedule(this.frame);
     if (this.gl.isContextLost()) return;
+    // Once everything is loaded, each stop is drawn once off screen (one a frame) before the ride gets there.
+    const warm = this.loaded ? this.warmQueue.shift() : undefined;
+    if (warm !== undefined) this.render(performance.now() / 1000, warm);
     this.render(performance.now() / 1000);
 
     if (!this.announced && this.modelSettled) {
@@ -328,7 +500,7 @@ export class DustEngine {
       this.emit({ type: "status", status: "ready" });
     }
     const now = performance.now();
-    if (this.modelSettled) this.adaptDensity(now);
+    if (this.loaded && !this.warmQueue.length) this.adaptDensity(now);
     if (this.options.stats) {
       this.frames++;
       if (now - this.statsFrom >= 1000) {
@@ -341,13 +513,14 @@ export class DustEngine {
   };
 
   /**
-   * After a warm-up, measures a few short windows and thins the dense layers whenever the
-   * frame rate falls short of the target, roughly in proportion; then leaves it alone.
+   * After every body has loaded and a warm-up, measures short windows: `steady` windows in a row at
+   * the target raise the density a step; two short of it in a row lower it roughly in proportion
+   * and stop the climb. Then it is left alone. Phones keep their own fixed counts.
    */
   private adaptDensity(now: number) {
     const a = T.render.adaptive;
     const s = this.adapt;
-    if (s.windows >= a.windows) return;
+    if (this.options.mobile || s.windows >= a.windows) return;
     if (s.from < 0) {
       s.from = now + a.warmup;
       return;
@@ -357,7 +530,22 @@ export class DustEngine {
     const elapsed = now - s.from;
     if (elapsed < a.window) return;
     const fps = (s.frames * 1000) / elapsed;
-    if (fps < a.target - 3) this.density = Math.max(a.min, this.density * clamp(fps / a.target, 0.5, 0.92));
+    if (fps < a.target - 3) {
+      s.steady = 0;
+      s.short++;
+      if (s.short >= 2) {
+        this.density = Math.max(a.min, this.density * clamp(fps / a.target, 0.5, 0.92));
+        s.capped = true;
+        s.short = 0;
+      }
+    } else if (!s.capped && this.density < 1 && fps >= a.target - 1) {
+      s.short = 0;
+      s.steady++;
+      if (s.steady >= a.steady) {
+        this.density = Math.min(1, this.density * a.raise);
+        s.steady = 0;
+      }
+    }
     s.windows++;
     s.from = now;
     s.frames = 0;
@@ -371,65 +559,171 @@ export class DustEngine {
     return c;
   }
 
-  private async loadModel(url: string, count: number) {
-    try {
-      const response = await fetch(url);
+  /**
+   * The drift car first (the scene is ready once it is in), then the bodies of the later stops,
+   * each analysed in slices so the ride keeps running meanwhile.
+   */
+  private async loadBodies() {
+    await this.loadBody(this.bodies.car, () => Promise.resolve());
+    this.introStart = performance.now() / 1000;
+    this.modelSettled = true;
+    // Slices hand the thread back to the frame loop; while the intro covers the scene they run longer.
+    let since = performance.now();
+    const pause = () => {
+      const now = performance.now();
+      if (now < this.rushUntil && now - since < RUSH_SLICE) return Promise.resolve();
+      return new Promise<void>((resolve) =>
+        setTimeout(() => {
+          since = performance.now();
+          resolve();
+        }, 0),
+      );
+    };
+    for (const id of BODIES.slice(1)) await this.loadBody(this.bodies[id], pause);
+    this.warmQueue = [...this.ride.timeline.stopCentres];
+    this.loaded = true;
+  }
+
+  private async rawPoints(id: BodyId, count: number): Promise<Float32Array> {
+    const spec = id === "car" ? T.car : T.bodies[id];
+    if ("model" in spec) {
+      const response = await fetch(new URL(spec.model, this.options.baseUrl));
       if (!response.ok) throw new Error(`${response.status}`);
-      const raw = new Float32Array(await response.arrayBuffer());
-      const { cloud, bounds } = sampleModel(raw, count, T.car);
-      this.bounds = bounds;
-      this.carSpacing = cloud.spacing;
-      this.car = createInstances(
+      const model = new Float32Array(await response.arrayBuffer());
+      if (!("rider" in spec)) return model;
+      // The bike gets its rider, knee out on the inside of the moto corner.
+      const inside = this.ride.track.stops.find((s) => s.id === "moto")?.turn || 1;
+      const rider = riderShape(Math.round((model.length / 3) * spec.rider), inside);
+      const both = new Float32Array(model.length + rider.length);
+      both.set(model);
+      both.set(rider, model.length);
+      return both;
+    }
+    return gantryShape(count);
+  }
+
+  private async loadBody(b: Body, yieldFrame: () => Promise<void>) {
+    try {
+      const raw = await this.rawPoints(b.id, b.entries);
+      const { cloud, bounds } = await sampleModel(raw, b.entries, b.spec, yieldFrame);
+      if (this.gl.isContextLost()) return;
+      b.bounds = bounds;
+      b.extent = Math.hypot(
+        Math.max(-bounds.min[0], bounds.max[0]),
+        Math.max(-bounds.min[1], bounds.max[1]),
+        Math.max(-bounds.min[2], bounds.max[2]),
+      );
+      b.spacing = cloud.spacing;
+      b.inst = createInstances(
         this.gl,
         this.corners,
         cloud.positions,
         cloud.seeds,
         cloud.count,
         cloud.frames,
-        T.car.copies,
+        b.spec.copies,
       );
-      if (this.canSimulate) {
-        this.carSim = createSimulation(this.gl, this.format, cloud.count * T.car.copies, T.pointer.textureWidth, [
+      if (this.pool && b.slot) {
+        b.slot.count = Math.min(cloud.count * b.spec.copies, b.slot.rows * this.pool.width);
+        b.slot.data = createSimData(this.gl, this.pool.width, [
           { values: cloud.positions, size: 3, half: true },
           { values: cloud.seeds, size: 4 },
           { values: cloud.frames, size: 4, half: true },
         ]);
+      } else {
+        b.slot = null;
       }
-      this.updateEmitters();
+      if (b.id === "car") this.updateEmitter("smoke");
+      if (b.id === "formula") this.updateEmitter("wake");
+      if (b.id === "moto") this.updateEmitter("sparks");
+      if (b.id === "gantry") this.buildLamps(b);
     } catch {
-      // The scene still works without the car; the ride and smoke carry on.
+      // The scene still works without this body; the ride carries on.
     }
-    this.introStart = performance.now() / 1000;
-    this.modelSettled = true;
   }
 
-  /** Height that puts the model's floor on the road. */
-  private get carLift() {
-    return -this.bounds.min[1] * T.car.scale;
-  }
-
-  private carMatrix(out: Float32Array, pose: { d: number; u: number; yaw: number; pitch: number; roll: number }) {
+  /**
+   * Places a body: on its floor by default, or rotated about the tyre contact so a leaning bike
+   * keeps its wheels on the road.
+   */
+  private placeBody(b: Body, pose: Pick<BodyPose, "d" | "u" | "yaw" | "pitch" | "roll" | "pivot">) {
+    const s = b.spec.scale;
+    const floor = -b.bounds.min[1] * s;
     const pos = carPosition(this.ride, pose);
-    pos[1] += this.carLift;
-    return bodyMatrix(out, pos, pose.yaw, pose.pitch, pose.roll, T.car.scale);
+    if (pose.pivot === "ground") {
+      bodyMatrix(b.model, pos, pose.yaw, pose.pitch, pose.roll, s);
+      const up = normalize(transformDirection(b.model, [0, 1, 0]));
+      pos[0] += up[0] * floor;
+      pos[1] += up[1] * floor;
+      pos[2] += up[2] * floor;
+    } else pos[1] += floor;
+    bodyMatrix(b.model, pos, pose.yaw, pose.pitch, pose.roll, s);
+    b.centre = pos;
+    return b.model;
   }
 
-  /** Samples the rear wheels along the slide into a float texture the smoke shader reads. */
-  private updateEmitters() {
+  /** Lamp discs carried from the gantry's model space into the world (the gantry never moves). */
+  private buildLamps(gantry: Body) {
+    const m = this.placeBody(gantry, bodyPoses(this.ride, 0).gantry);
+    const counts = this.options.mobile ? T.counts.mobile : T.counts.desktop;
+    const rand = random(61);
+    this.lamps = lampShapes(counts.lamp).map((local) => {
+      const n = local.length / 3;
+      const positions = new Float32Array(local.length);
+      for (let i = 0; i < n; i++) {
+        positions.set(transformPoint(m, [local[i * 3], local[i * 3 + 1], local[i * 3 + 2]]), i * 3);
+      }
+      const seeds = Float32Array.from({ length: n * 4 }, rand);
+      return createInstances(this.gl, this.corners, positions, seeds, n);
+    });
+  }
+
+  /**
+   * Samples an emitter's sources along its body's run into a float texture the smoke shader
+   * reads: rows 0 and 1 are the two sources (with the road height), row 2 the forward direction.
+   */
+  private updateEmitter(id: EmitterId) {
     const gl = this.gl;
-    const n = T.smoke.samples;
+    const e = this.emitters[id];
+    const n = e.spec.samples;
     const data = new Float32Array(n * 3 * 4);
-    const m = mat4();
-    const half = Math.max(-this.bounds.min[2], this.bounds.max[2]) * 0.85;
-    const y = this.bounds.min[1] + T.car.wheelLift;
     const points: Vec3[] = [];
+    const car = this.bodies.car;
+    const body = this.bodies[e.body];
+    const scratch: Body = { ...body, model: mat4() };
     for (let i = 0; i < n; i++) {
-      const pose = slidePose(this.ride, i / (n - 1));
-      this.carMatrix(m, pose);
-      const ground = carPosition(this.ride, pose)[1];
-      const left = transformPoint(m, [T.car.rearAxle, y, -half]);
-      const right = transformPoint(m, [T.car.rearAxle, y, half]);
-      const forward = transformDirection(m, [1, 0, 0]);
+      const t = i / (n - 1);
+      let left: Vec3;
+      let right: Vec3;
+      let forward: Vec3;
+      let ground: number;
+      if (id === "smoke") {
+        // Rear wheels; the kick runs along the scaled body axis, as it always has.
+        const pose = slidePose(this.ride, t);
+        const m = this.placeBody(scratch, pose);
+        const half = Math.max(-car.bounds.min[2], car.bounds.max[2]) * 0.85;
+        const y = car.bounds.min[1] + T.car.wheelLift;
+        ground = carPosition(this.ride, pose)[1];
+        left = transformPoint(m, [T.car.rearAxle, y, -half]);
+        right = transformPoint(m, [T.car.rearAxle, y, half]);
+        forward = transformDirection(m, [1, 0, 0]);
+      } else if (id === "wake") {
+        const pose = formulaAt(this.ride, t);
+        const m = this.placeBody(scratch, pose);
+        const [x, y, z] = T.wake.source;
+        ground = carPosition(this.ride, pose)[1];
+        left = transformPoint(m, [x, y, -z]);
+        right = transformPoint(m, [x, y, z]);
+        forward = normalize(transformDirection(m, [1, 0, 0]));
+      } else {
+        const pose = motoAt(this.ride, t);
+        const m = this.placeBody(scratch, { ...pose, pivot: "ground" });
+        const inside = this.ride.track.stops.find((s) => s.id === "moto")?.turn || 1;
+        const [x, y, z] = T.sparks.source;
+        ground = carPosition(this.ride, pose)[1];
+        left = right = transformPoint(m, [x, y, inside * z]);
+        forward = normalize(transformDirection(m, [1, 0, 0]));
+      }
       points.push(left, right);
       data.set([...left, ground], i * 4);
       data.set([...right, ground], (n + i) * 4);
@@ -438,13 +732,15 @@ export class DustEngine {
     const centre = points
       .reduce((acc, q) => [acc[0] + q[0], acc[1] + q[1], acc[2] + q[2]], [0, 0, 0])
       .map((v) => v / points.length) as Vec3;
-    const s = T.smoke;
-    const carHeight = (this.bounds.max[1] - this.bounds.min[1]) * T.car.scale;
-    // Grown puff, kick, rise, swirl and a thrown grain's reach on top of the wheel path.
-    const reach = s.spread[1] + s.kick + s.ceiling * carHeight + s.swirl[0] + 1.5;
+    const s = e.spec;
+    const carHeight = (car.bounds.max[1] - car.bounds.min[1]) * T.car.scale;
+    e.ceiling = id === "smoke" ? T.smoke.ceiling * carHeight : id === "wake" ? T.wake.ceiling : T.sparks.ceiling;
+    // Grown puff, kick, rise, swirl, streak and a thrown grain's reach on top of the path.
+    const reach = s.spread[1] + s.kick * (id === "smoke" ? T.car.scale : 1) + e.ceiling + s.swirl[0] + s.streak + 1.5;
     const radius = Math.max(...points.map((q) => Math.hypot(q[0] - centre[0], q[1] - centre[1], q[2] - centre[2])));
-    this.smokeBounds = { centre, radius: radius + reach };
-    gl.bindTexture(gl.TEXTURE_2D, this.emitTex);
+    e.bounds = { centre, radius: radius + reach };
+    e.ready = id === "smoke" || body.inst !== null;
+    gl.bindTexture(gl.TEXTURE_2D, e.tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, n, 3, 0, gl.RGBA, gl.FLOAT, data);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -452,91 +748,119 @@ export class DustEngine {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  private render(t: number) {
+  /**
+   * One frame at the current progress, or with `warmAt` a warm-up frame at that progress: every body
+   * and emitter in reach is drawn but nothing is shown, simulated, reported or carried to the next frame.
+   */
+  private render(t: number, warmAt?: number) {
+    const warm = warmAt !== undefined;
     const gl = this.gl;
     const hdr = this.hdr!;
     const cam = T.camera;
-    const dt = this.lastTime ? clamp(t - this.lastTime, 1 / 240, 0.1) : 1 / 60;
-    this.lastTime = t;
+    const dt = this.lastTime && !warm ? clamp(t - this.lastTime, 1 / 240, 0.1) : 1 / 60;
+    if (!warm) this.lastTime = t;
     // Reduced motion: still frames at the stops, no churn or twinkle.
     const time = this.reduced ? 0 : t;
-    const p = this.reduced ? stillFrame(this.ride, this.progress) : this.progress;
+    const p = warm ? warmAt : this.reduced ? stillFrame(this.ride, this.progress) : this.progress;
 
-    // Choreography.
-    const pose = carPose(this.ride, p);
-    const carCentre = carPosition(this.ride, pose);
-    carCentre[1] += this.carLift;
-    const view = cameraPose(this.ride, p, { centre: carCentre, d: pose.d, u: pose.u });
-
-    const travelled = Math.abs(view.distance - this.lastDistance) / dt;
-    this.lastDistance = view.distance;
-    if (this.reduced || this.first) {
-      this.speed = 0;
-      this.roll = 0;
-    } else {
-      this.speed = damp(this.speed, Math.min(travelled, cam.topSpeed), cam.damping, dt);
-      const bend = this.ride.track.curvature(view.distance + cam.lookAhead * 0.5);
-      const roll = clamp(-bend * this.speed * cam.rollGain, -cam.maxRoll, cam.maxRoll) * DEG;
-      this.roll = damp(this.roll, roll, cam.damping, dt);
-    }
-
-    // Camera matrices.
+    // Choreography: the bodies first, then the camera that frames them.
+    const poses = bodyPoses(this.ride, p);
+    for (const id of BODIES) this.placeBody(this.bodies[id], poses[id]);
+    const mark = (id: BodyId) => ({ centre: this.bodies[id].centre, d: poses[id].d, u: poses[id].u });
     const w = hdr.width;
     const h = hdr.height;
     const aspect = w / h;
+    // How far towards portrait the screen is (0 landscape, 1 portrait).
+    const portrait = clamp((1 - aspect) / 0.25, 0, 1);
+    const view = cameraPose(
+      this.ride,
+      p,
+      { drift: mark("car"), formula: mark("formula"), moto: mark("moto") },
+      portrait,
+    );
+
+    // A warm-up frame keeps the speed and roll of the real ride.
+    if (!warm) {
+      const travelled = Math.abs(view.distance - this.lastDistance) / dt;
+      this.lastDistance = view.distance;
+      if (this.reduced || this.first) {
+        this.speed = 0;
+        this.roll = 0;
+      } else {
+        this.speed = damp(this.speed, Math.min(travelled, cam.topSpeed), cam.damping, dt);
+        const bend = this.ride.track.curvature(view.distance + cam.lookAhead * 0.5);
+        const roll = clamp(-bend * this.speed * cam.rollGain, -cam.maxRoll, cam.maxRoll) * DEG;
+        this.roll = damp(this.roll, roll, cam.damping, dt);
+      }
+    }
+
+    // Camera matrices.
     const kick = Math.min(this.speed * cam.fovKick, cam.maxFovKick);
     const minVertical = 2 * Math.atan(Math.tan((cam.minHorizontalFov * DEG) / 2) / aspect);
     const fovY = Math.max((cam.fov + kick) * DEG, minVertical + kick * DEG);
     perspective(this.proj, fovY, aspect, cam.near, cam.far);
+    // Portrait stops lift the picture clear of the panel along the bottom (a lens shift).
+    this.proj[9] = -cam.portraitShift * portrait * view.hold;
     lookAt(this.view, view.eye, view.target, this.roll);
     multiply(this.viewProj, this.proj, this.view);
     invert(this.inverse, this.viewProj);
-    if (this.first || this.reduced) this.prevViewProj.set(this.viewProj);
+    const prevViewProj = warm ? Float32Array.from(this.prevViewProj) : null;
+    if (this.first || this.reduced || warm) this.prevViewProj.set(this.viewProj);
     const focus = view.focus;
     const colour = chapterColour(this.ride, p);
     const ground = chapterColour(this.ride, p, "ground");
 
+    // Bodies: the car waits for its intro; the rest assemble as the ride reaches them.
     const intro =
       this.introStart < 0 ? 0 : this.reduced ? 1 : clamp((t - this.introStart) / T.car.intro, 0, 1);
-    const form = pose.form * intro;
-    this.carMatrix(this.model, pose);
-    if (this.first) this.prevModel.set(this.model);
-    const carFormed = Boolean(this.car && form > 0 && this.carTarget);
-    // Scattered while assembling, so the sphere grows with the scatter.
-    const carRadius = T.car.scale * (1.2 + (T.car.formSpread * 1.4 + T.car.formLift) * (1 - form)) + 1;
-    const carVisible = sphereInFrustum(this.viewProj, carCentre, carRadius);
-    const carDrawn = carFormed && carVisible;
-    const smokeLive = pose.slide > 0 && pose.slide < T.smoke.emit[1] + T.smoke.life;
-    const smokeVisible = sphereInFrustum(this.viewProj, this.smokeBounds.centre, this.smokeBounds.radius);
-    const smokeDrawn = smokeLive && smokeVisible;
+    let bodiesDrawn = false;
+    for (const id of BODIES) {
+      const b = this.bodies[id];
+      const bp = poses[id];
+      b.form = id === "car" ? bp.form * intro : bp.form;
+      if (this.first) b.prevModel.set(b.model);
+      b.formed = Boolean(b.inst && b.form > 0 && this.carTarget);
+      // Scattered while assembling, so the sphere grows with the scatter.
+      const sp = b.spec;
+      b.radius = sp.scale * (b.extent + (sp.formSpread * 1.4 + Math.abs(sp.formLift)) * (1 - b.form)) + 1;
+      b.drawn = b.formed && (warm || sphereInFrustum(this.viewProj, b.centre, b.radius));
+      bodiesDrawn ||= b.drawn;
+    }
+    for (const id of ["smoke", "wake", "sparks"] as const) {
+      const e = this.emitters[id];
+      e.slide = poses[e.body].slide;
+      e.live = e.ready && e.slide > (id === "smoke" ? 0 : e.spec.emit[0]) && e.slide < e.spec.emit[1] + e.spec.life;
+      e.drawn = warm ? e.ready : e.live && sphereInFrustum(this.viewProj, e.bounds.centre, e.bounds.radius);
+    }
+    const smoke = this.emitters.smoke;
     const thinned = (inst: Instances) => Math.max(1, Math.floor(inst.count * this.density));
 
-    const bodyUniforms = (prog: Program) => {
-      const c = T.car;
+    const bodyUniforms = (prog: Program, b: Body) => {
+      const c = b.spec;
       gl.uniform1f(prog.u.uTime, time);
-      gl.uniformMatrix4fv(prog.u.uModel, false, this.model);
-      gl.uniform1f(prog.u.uForm, form);
+      gl.uniformMatrix4fv(prog.u.uModel, false, b.model);
+      gl.uniform1f(prog.u.uForm, b.form);
       gl.uniform4f(prog.u.uFormShape, c.formSpread, c.formLift, c.formSwirl, c.formDelay);
       gl.uniform1f(prog.u.uShimmer, this.reduced ? 0 : c.shimmer);
       gl.uniform1i(prog.u.uCopies, c.copies);
-      gl.uniform1f(prog.u.uSpread, this.carSpacing * c.copySpread);
+      gl.uniform1f(prog.u.uSpread, b.spacing * c.copySpread);
       gl.uniform1f(prog.u.uEdgeTighten, c.edgeTighten);
     };
-    const smokeUniforms = (prog: Program) => {
-      const s = T.smoke;
+    const emitterUniforms = (prog: Program, e: Emitter) => {
+      const s = e.spec;
       gl.uniform1f(prog.u.uTime, time);
       gl.uniform3fv(prog.u.uCamPos, view.eye);
       gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, this.emitTex);
+      gl.bindTexture(gl.TEXTURE_2D, e.tex);
       gl.uniform1i(prog.u.uEmit, 2);
       gl.uniform1i(prog.u.uEmitCount, s.samples);
-      gl.uniform1f(prog.u.uSlide, pose.slide);
+      gl.uniform1f(prog.u.uSlide, e.slide);
       gl.uniform4f(prog.u.uSmokeA, s.grow, s.spread[0], s.spread[1], s.rise);
       gl.uniform4f(prog.u.uSmokeB, s.swirl[0], s.swirl[1], s.swirl[2], s.kick);
       gl.uniform2f(prog.u.uSmokeSize, s.size[0], s.size[1]);
-      const carHeight = (this.bounds.max[1] - this.bounds.min[1]) * T.car.scale;
-      gl.uniform2f(prog.u.uSmokeLife, s.life, s.ceiling * carHeight);
+      gl.uniform2f(prog.u.uSmokeLife, s.life, e.ceiling);
       gl.uniform2f(prog.u.uSmokeFade, s.cameraFade[0], s.cameraFade[1]);
+      gl.uniform1f(prog.u.uSmokeStreak, this.reduced ? 0 : s.streak);
     };
 
     // Cursor → world ray, extrapolated from the last event to this frame (off under reduced motion).
@@ -560,7 +884,7 @@ export class DustEngine {
     this.nudge = damp(this.nudge, cursorOn ? 1 : 0, P.terrainFade, dt);
     if (cursorOn) this.nudgeRay = [near, rayDir];
 
-    // A layer simulates only while in frame and for `settle` seconds after the moving cursor last
+    // A simulation runs only while in frame and for `settle` seconds after the moving cursor last
     // passed near it; otherwise its state is left as it is and the draw keeps reading it.
     const passes = (centre: Vec3, radius: number) => {
       const rel = sub(centre, near);
@@ -569,24 +893,36 @@ export class DustEngine {
       return along > -radius && off < radius;
     };
     const stirring = cursorOn && moving;
-    if (stirring && carFormed && passes(carCentre, carRadius + 3 * P.car.radius)) {
-      this.awake.car = t + P.car.settle;
+    const pool = this.pool;
+    if (stirring && pool) {
+      for (const id of BODIES) {
+        const b = this.bodies[id];
+        if (!b.formed || !b.slot?.count || !passes(b.centre, b.radius + 3 * P.car.radius)) continue;
+        // One stop holds the state at a time; another stop taking it starts clean.
+        if (this.owner !== b.group) {
+          if (this.stirred.bodies) resetSimulation(gl, pool);
+          this.stirred.bodies = false;
+          this.owner = b.group;
+        }
+        this.awake.bodies = t + P.car.settle;
+      }
     }
-    if (stirring && smokeLive && passes(this.smokeBounds.centre, this.smokeBounds.radius + 3 * P.smoke.radius)) {
+    if (stirring && smoke.live && passes(smoke.bounds.centre, smoke.bounds.radius + 3 * P.smoke.radius)) {
       this.awake.smoke = t + P.smoke.settle;
     }
     // Displaced smoke grains must be put back as they are unborn and reborn by scrolling.
-    if (this.stirred.smoke && smokeLive && pose.slide !== this.lastSlide) {
+    if (this.stirred.smoke && smoke.live && smoke.slide !== this.lastSlide) {
       this.awake.smoke = Math.max(this.awake.smoke, t + 0.1);
     }
-    this.lastSlide = pose.slide;
+    if (!warm) this.lastSlide = smoke.slide;
+    const owned = BODIES.filter((id) => this.bodies[id].group === this.owner).map((id) => this.bodies[id]);
     // Gone from the ride: start clean next time.
-    if (this.carSim && this.stirred.car && !carFormed) {
-      resetSimulation(gl, this.carSim);
-      this.stirred.car = false;
+    if (pool && this.stirred.bodies && !owned.some((b) => b.formed)) {
+      resetSimulation(gl, pool);
+      this.stirred.bodies = false;
     }
-    if (this.smokeSim && this.stirred.smoke && !smokeLive) {
-      resetSimulation(gl, this.smokeSim);
+    if (smoke.sim && this.stirred.smoke && !smoke.live) {
+      resetSimulation(gl, smoke.sim);
       this.stirred.smoke = false;
     }
 
@@ -597,27 +933,31 @@ export class DustEngine {
     if (stepDue) this.simClock = 0;
 
     const step = (
-      sim: Simulation,
+      src: SimState,
+      dst: SimState,
+      width: number,
+      row: number,
+      rows: number,
+      count: number,
+      data: WebGLTexture[],
       prog: Program,
       cfg: (typeof P)["car" | "smoke"],
-      drawn: number,
       setup: (prog: Program) => void,
     ) => {
-      const src = sim.states[sim.read];
-      const dst = sim.states[1 - sim.read];
       const u = prog.u;
       gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
-      gl.viewport(0, 0, sim.width, Math.min(sim.height, Math.ceil(drawn / sim.width)));
+      gl.viewport(0, row, width, rows);
       gl.useProgram(prog.program);
-      const textures = [src.offset, src.velocity, ...sim.data];
+      const textures = [src.offset, src.velocity, ...data];
       const names = ["uOffset", "uVelocity", "uDataPos", "uDataSeed", "uDataFrame"];
       textures.forEach((tex, i) => {
         gl.activeTexture(gl.TEXTURE3 + i);
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.uniform1i(u[names[i]], 3 + i);
       });
-      gl.uniform1i(u.uWidth, sim.width);
-      gl.uniform1i(u.uCount, sim.count);
+      gl.uniform1i(u.uWidth, width);
+      gl.uniform1i(u.uCount, count);
+      gl.uniform1i(u.uSimBase, row * width);
       gl.uniform1f(u.uDt, simDt);
       gl.uniform4f(u.uSpring, cfg.spring, cfg.damping, P.swirl, P.maxSpeed);
       gl.uniform4f(u.uCursor, cursorOn ? cfg.radius : 0, cfg.lateral, cfg.carry, cfg.rest);
@@ -629,25 +969,42 @@ export class DustEngine {
       setup(prog);
       gl.bindVertexArray(this.screenVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      sim.read = 1 - sim.read;
     };
     gl.disable(gl.BLEND);
-    if (!this.reduced && stepDue && carDrawn && this.car && this.carSim && t < this.awake.car) {
-      step(this.carSim, this.simPrograms.body, P.car, thinned(this.car) * T.car.copies, bodyUniforms);
-      this.stirred.car = true;
+    if (!this.reduced && !warm && stepDue && pool && t < this.awake.bodies && owned.some((b) => b.drawn)) {
+      // Every formed body of the stop steps into the same target, then the state flips once.
+      const src = pool.states[pool.read];
+      const dst = pool.states[1 - pool.read];
+      for (const b of owned) {
+        if (!b.formed || !b.inst || !b.slot?.count) continue;
+        const rows = Math.min(b.slot.rows, Math.ceil((thinned(b.inst) * b.spec.copies) / pool.width));
+        step(src, dst, pool.width, b.slot.row, rows, b.slot.count, b.slot.data, this.simPrograms.body, P.car, (prog) =>
+          bodyUniforms(prog, b),
+        );
+      }
+      pool.read = 1 - pool.read;
+      this.stirred.bodies = true;
     }
-    if (!this.reduced && stepDue && smokeDrawn && this.smokeSim && t < this.awake.smoke) {
-      step(this.smokeSim, this.simPrograms.smoke, P.smoke, thinned(this.smoke), smokeUniforms);
+    const smokeSim = smoke.sim;
+    if (!this.reduced && !warm && stepDue && smoke.drawn && smokeSim && t < this.awake.smoke) {
+      const rows = Math.min(smokeSim.height, Math.ceil(thinned(smoke.inst) / smokeSim.width));
+      const src = smokeSim.states[smokeSim.read];
+      const dst = smokeSim.states[1 - smokeSim.read];
+      step(src, dst, smokeSim.width, 0, rows, smokeSim.count, smokeSim.data, this.simPrograms.smoke, P.smoke, (prog) =>
+        emitterUniforms(prog, smoke),
+      );
+      smokeSim.read = 1 - smokeSim.read;
       this.stirred.smoke = true;
     }
     // The draw reads the state just written; samplers always point at units 3/4 so they never
     // alias a render target.
-    const bindState = (prog: Program, sim: Simulation | null) => {
+    const bindState = (prog: Program, sim: { states: [SimState, SimState]; read: number; width: number } | null, base = 0) => {
       const on = Boolean(sim) && !this.reduced;
       gl.uniform1f(prog.u.uSimOn, on ? 1 : 0);
       gl.uniform1f(prog.u.uDt, dt);
       gl.uniform1i(prog.u.uSimOffset, 3);
       gl.uniform1i(prog.u.uSimVelocity, 4);
+      gl.uniform1i(prog.u.uSimBase, base);
       if (!sim || !on) return;
       const s = sim.states[sim.read];
       gl.activeTexture(gl.TEXTURE3);
@@ -705,10 +1062,8 @@ export class DustEngine {
     };
 
     const still = this.particle.still;
-    for (const layer of STATIC_LAYERS) {
-      common(still, T.layers[layer]);
-      const follow = layer === "stars" ? 1 : 0;
-      gl.uniform1f(still.u.uFollow, follow);
+    const stillSetup = (layer: string) => {
+      gl.uniform1f(still.u.uFollow, layer === "stars" ? 1 : 0);
       gl.uniform3fv(still.u.uPrevCamPos, this.first ? view.eye : this.prevEye);
       if (layer === "fog") gl.uniform3f(still.u.uDrift, ...T.track.fogDrift);
       else if (layer === "terrain") gl.uniform3f(still.u.uDrift, ...T.track.terrainDrift);
@@ -717,38 +1072,71 @@ export class DustEngine {
       gl.uniform2f(still.u.uNudge, P.terrain.radius, nudged ? P.terrain.shove * this.nudge : 0);
       gl.uniform3fv(still.u.uRayOrigin, this.nudgeRay[0]);
       gl.uniform3fv(still.u.uRayDir, this.nudgeRay[1]);
+    };
+    for (const layer of STATIC_LAYERS) {
+      common(still, T.layers[layer]);
+      stillSetup(layer);
       draw(this.clouds[layer], ADAPTIVE.has(layer) ? thinned(this.clouds[layer]) : undefined);
     }
 
-    if (smokeDrawn) {
-      const smoke = this.particle.smoke;
-      common(smoke, T.layers.smoke);
-      smokeUniforms(smoke);
-      bindState(smoke, this.smokeSim);
-      draw(this.smoke, thinned(this.smoke));
+    // Start lights on the gantry: dim glass until each one comes on, one by one from the moment the
+    // ride comes near (all lit under reduced motion).
+    const atLive = nearLive(this.ride, p);
+    if (!warm) this.lightsSince = atLive ? (this.lightsSince < 0 ? t : this.lightsSince) : -1;
+    const gantry = this.bodies.gantry;
+    if (this.lamps.length && gantry.drawn) {
+      const levels = startLights(this.ride, this.reduced || warm ? Infinity : atLive ? t - this.lightsSince : 0);
+      const l = T.live;
+      this.lamps.forEach((lamp, i) => {
+        common(still, T.layers.lamp);
+        stillSetup("lamp");
+        const glow = (l.lampOff + (l.lampOn - l.lampOff) * levels[i]) * gantry.form;
+        gl.uniform1f(still.u.uIntensity, (T.layers.lamp.intensity * glow) / this.format.decode);
+        draw(lamp);
+      });
     }
 
-    if (this.car && carDrawn && this.carTarget) {
+    const smokeProg = this.particle.smoke;
+    for (const id of ["smoke", "wake", "sparks"] as const) {
+      const e = this.emitters[id];
+      if (!e.drawn) continue;
+      common(smokeProg, e.look);
+      emitterUniforms(smokeProg, e);
+      bindState(smokeProg, e.sim);
+      draw(e.inst, thinned(e.inst));
+    }
+
+    if (bodiesDrawn && this.carTarget) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.carTarget.fbo);
       gl.clear(gl.COLOR_BUFFER_BIT);
-      const body = this.particle.body;
-      const c = T.car;
-      common(body, T.layers.car);
-      // The body is never blurred: no bokeh, no far blur.
-      gl.uniform4f(body.u.uDof, focus, 0, 0, 0);
-      bodyUniforms(body);
-      gl.uniformMatrix4fv(body.u.uPrevModel, false, this.reduced ? this.model : this.prevModel);
-      gl.uniform1f(body.u.uEdgeBoost, c.edgeBoost);
-      bindState(body, this.carSim);
-      draw(this.car, thinned(this.car) * c.copies);
+      const prog = this.particle.body;
+      for (const id of BODIES) {
+        const b = this.bodies[id];
+        if (!b.drawn || !b.inst) continue;
+        common(prog, T.layers.car);
+        gl.uniform1f(prog.u.uIntensity, (T.layers.car.intensity * b.spec.glow) / this.format.decode);
+        // Bodies are never blurred: no bokeh, no far blur.
+        gl.uniform4f(prog.u.uDof, focus, 0, 0, 0);
+        bodyUniforms(prog, b);
+        gl.uniformMatrix4fv(prog.u.uPrevModel, false, this.reduced || warm ? b.model : b.prevModel);
+        gl.uniform1f(prog.u.uEdgeBoost, b.spec.edgeBoost);
+        const holds = pool && this.owner === b.group && b.slot?.count ? pool : null;
+        bindState(prog, holds, holds && b.slot ? b.slot.row * holds.width : 0);
+        // Without a simulation the cursor just nudges the grains aside.
+        const nudged = !pool && this.nudge > 0.001;
+        gl.uniform2f(prog.u.uNudge, P.car.radius, nudged ? P.terrain.shove * this.nudge : 0);
+        gl.uniform3fv(prog.u.uRayOrigin, this.nudgeRay[0]);
+        gl.uniform3fv(prog.u.uRayDir, this.nudgeRay[1]);
+        draw(b.inst, thinned(b.inst) * b.spec.copies);
+      }
     }
     gl.bindVertexArray(null);
 
-    this.bloomPass(hdr, carDrawn);
+    this.bloomPass(hdr, bodiesDrawn);
 
-    // The car joins the full-resolution scene after bloom has been taken, so no half-resolution
-    // glow is laid over it.
-    if (carDrawn && this.carTarget) {
+    // Bodies join the full-resolution scene after bloom has been taken, so no half-resolution
+    // glow is laid over them.
+    if (bodiesDrawn && this.carTarget) {
       const ceiling = this.post.ceiling;
       gl.bindVertexArray(this.screenVao);
       gl.enable(gl.BLEND);
@@ -759,12 +1147,52 @@ export class DustEngine {
       gl.disable(gl.BLEND);
       gl.bindVertexArray(null);
     }
+    if (prevViewProj) {
+      this.prevViewProj.set(prevViewProj);
+      return;
+    }
     this.composite(hdr, time);
 
     this.prevViewProj.set(this.viewProj);
-    this.prevModel.set(this.model);
+    for (const id of BODIES) this.bodies[id].prevModel.set(this.bodies[id].model);
     this.prevEye = view.eye;
     this.first = false;
+    this.report(time);
+  }
+
+  /**
+   * One message a frame for the page: camera speed, then while the store stop is near, each floating
+   * product's place on screen (NDC x, y), its size at that depth (1 at `refDepth`) and how far it
+   * has come out of the dust: [speed, count, x, y, size, form, …].
+   */
+  private report(time: number) {
+    const products = storeProducts(this.ride, this.reduced ? stillFrame(this.ride, this.progress) : this.progress);
+    const near = products.some((item) => item.form > 0);
+    const data = new Float32Array(2 + (near ? products.length * 4 : 0));
+    data[0] = this.speed;
+    if (near) {
+      const s = T.store;
+      const m = this.viewProj;
+      const v = this.view;
+      data[1] = products.length;
+      products.forEach(({ pos, form }, i) => {
+        // Slow drift across and up the view, each product on its own beat.
+        const a = time * s.drift[2] + i * 1.7;
+        const across = Math.sin(a) * s.drift[0];
+        const up = Math.sin(a * 1.3 + i * 2.3) * s.drift[1];
+        const x = pos[0] + v[0] * across + v[1] * up;
+        const y = pos[1] + v[4] * across + v[5] * up;
+        const z = pos[2] + v[8] * across + v[9] * up;
+        const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+        const o = 2 + i * 4;
+        if (w < 0.3) return;
+        data[o] = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
+        data[o + 1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
+        data[o + 2] = s.refDepth / w;
+        data[o + 3] = form;
+      });
+    }
+    this.emit({ type: "frame", data });
   }
 
   /** Glow behind the horizon in the chapter colour, plus cool haze, under the dust. */
@@ -849,7 +1277,7 @@ export class DustEngine {
     gl.uniform1f(prog.u.uDecode, this.format.decode);
     gl.uniform1f(prog.u.uExposure, r.exposure);
     // The upsample chain sums every level, so divide its gain by the level count.
-    gl.uniform1f(prog.u.uBloomGain, r.bloom.strength / r.bloom.levels);
+    gl.uniform1f(prog.u.uBloomGain, r.bloom.strength / this.bloom.length);
     gl.uniform1f(prog.u.uVignette, r.vignette);
     gl.uniform1f(prog.u.uGrain, r.grain);
     gl.uniform1f(prog.u.uTime, time);

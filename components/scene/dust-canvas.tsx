@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { createSceneHost, type SceneHost } from "@/lib/scene/host";
-import type { SceneStats, SceneStatus } from "@/lib/scene/protocol";
+import type { SceneFrame, SceneStats, SceneStatus } from "@/lib/scene/protocol";
 import { sceneTuning } from "@/lib/scene-tuning";
 
 export type DustSceneHandle = {
@@ -18,18 +18,25 @@ export function DustCanvas({
   ref,
   poster,
   stats = false,
+  warmup = 0,
   onStats,
+  onFrame,
 }: {
   ref?: Ref<DustSceneHandle>;
   poster?: ReactNode;
   stats?: boolean;
+  /** How long the page's start-lights intro covers the scene (ms), if it plays this time. */
+  warmup?: number;
   onStats?: (stats: SceneStats) => void;
+  /** Camera speed and the floating store products, once a frame. */
+  onFrame?: (frame: SceneFrame) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const host = useRef<SceneHost | null>(null);
   const progress = useRef(0);
   const [status, setStatus] = useState<SceneStatus>("loading");
   const reportStats = useEffectEvent((stats: SceneStats) => onStats?.(stats));
+  const reportFrame = useEffectEvent((frame: SceneFrame) => onFrame?.(frame));
 
   useImperativeHandle(
     ref,
@@ -52,8 +59,11 @@ export function DustCanvas({
       mobile,
       reducedMotion: motion.matches,
       stats,
+      // The intro is skipped on a return within the session (set before paint).
+      warmup: document.documentElement.dataset.intro === "skip" ? 0 : warmup,
       onStatus: setStatus,
       onStats: (s) => reportStats(s),
+      onFrame: (f) => reportFrame(f),
     });
     scene.setProgress(progress.current);
     host.current = scene;
@@ -117,7 +127,7 @@ export function DustCanvas({
       scene.destroy();
       host.current = null;
     };
-  }, [stats]);
+  }, [stats, warmup]);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-0">

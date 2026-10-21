@@ -15,7 +15,7 @@ export function SiteFooter({ lang, t }: { lang: Locale; t: Messages["footer"] })
   ];
 
   return (
-    <footer id="footer" className="border-t border-line text-sm text-muted">
+    <footer id="footer" className="relative z-10 border-t border-line bg-bg text-sm text-muted">
       <div className="flex w-full flex-col gap-10 px-4 py-10 sm:px-6">
         <div className="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
           <nav aria-label={t.label}>

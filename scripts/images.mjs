@@ -28,7 +28,8 @@ async function listSources(dir) {
 /** Target widths that do not upscale; a smaller source keeps its own width as the largest step. */
 function widthsFor(sourceWidth) {
   const widths = WIDTHS.filter((w) => w < sourceWidth);
-  widths.push(Math.min(sourceWidth, WIDTHS.at(-1)));
+  const top = Math.min(sourceWidth, WIDTHS.at(-1));
+  if (!widths.includes(top)) widths.push(top);
   return widths;
 }
 

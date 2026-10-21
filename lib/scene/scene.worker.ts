@@ -3,7 +3,7 @@ import type { EngineEvent, HostMessage } from "./protocol";
 
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<HostMessage>) => void) | null;
-  postMessage(message: EngineEvent): void;
+  postMessage(message: EngineEvent, transfer?: Transferable[]): void;
 };
 
 let engine: DustEngine | null = null;
@@ -11,7 +11,10 @@ let engine: DustEngine | null = null;
 scope.onmessage = ({ data }) => {
   switch (data.type) {
     case "init":
-      engine = DustEngine.create(data.canvas, data.options, (event) => scope.postMessage(event));
+      // Frame data changes hands instead of being copied.
+      engine = DustEngine.create(data.canvas, data.options, (event) =>
+        scope.postMessage(event, event.type === "frame" ? [event.data.buffer] : []),
+      );
       break;
     case "resize":
       engine?.resize(data.width, data.height, data.dpr);

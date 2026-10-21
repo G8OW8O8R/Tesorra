@@ -29,7 +29,8 @@ export default async function RootLayout({
   const t = getMessages(lang);
 
   return (
-    <html lang={lang} className={`${fontVariables} h-full`}>
+    // The intro script marks <html> before hydration.
+    <html lang={lang} className={`${fontVariables} h-full`} suppressHydrationWarning>
       {/* Browser extensions add attributes to <body> before hydration. */}
       <body className="flex min-h-full flex-col" suppressHydrationWarning>
         <SiteBar lang={lang} t={t.nav} />

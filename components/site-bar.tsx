@@ -29,7 +29,7 @@ export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
           aria-label={t.home}
           className="justify-self-start text-accent transition-colors duration-(--dur-base) ease-standard"
         >
-          <Wordmark decorative className="w-[92px] sm:w-[112px]" />
+          <Wordmark decorative data-bar-wordmark className="w-[92px] sm:w-[112px]" />
         </Link>
 
         <CockpitDisplay t={t} />

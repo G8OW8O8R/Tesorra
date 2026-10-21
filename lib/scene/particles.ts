@@ -218,7 +218,13 @@ const cross3 = (u: V3, v: V3): V3 => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u
  * the normal is the direction of least spread, and the variation λmin / Σλ is high on edges,
  * creases and rims and near zero on flat panels.
  */
-function analyse(raw: Float32Array, total: number, bounds: ModelBounds, neighbours: number) {
+async function analyse(
+  raw: Float32Array,
+  total: number,
+  bounds: ModelBounds,
+  neighbours: number,
+  pause: () => Promise<void>,
+) {
   const size = [0, 1, 2].map((k) => bounds.max[k] - bounds.min[k]);
   const area = 2 * (size[0] * size[1] + size[1] * size[2] + size[2] * size[0]);
   const cell = Math.sqrt(area / total) * 2.5;
@@ -246,7 +252,13 @@ function analyse(raw: Float32Array, total: number, bounds: ModelBounds, neighbou
   const bestD = new Float64Array(neighbours);
   const bestI = new Int32Array(neighbours);
 
+  let slice = performance.now();
   for (let i = 0; i < total; i++) {
+    // Long analyses give the frame loop room every few milliseconds.
+    if ((i & 1023) === 0 && performance.now() - slice > 6) {
+      await pause();
+      slice = performance.now();
+    }
     const px = raw[i * 3];
     const py = raw[i * 3 + 1];
     const pz = raw[i * 3 + 2];
@@ -344,14 +356,16 @@ function analyse(raw: Float32Array, total: number, bounds: ModelBounds, neighbou
 }
 
 /**
- * The car's instance data: every model point (or a random share on small budgets), plus
+ * A body's instance data: every model point (or a random share on small budgets), plus
  * extra entries drawn from the most bent places so edges and creases read brighter.
+ * `pause` lets a long analysis hand the thread back between slices.
  */
-export function sampleModel(
+export async function sampleModel(
   raw: Float32Array,
   entries: number,
   car: { neighbours: number; edgeExtra: number },
-): { cloud: ModelCloud; bounds: ModelBounds } {
+  pause: () => Promise<void> = () => Promise.resolve(),
+): Promise<{ cloud: ModelCloud; bounds: ModelBounds }> {
   const total = Math.floor(raw.length / 3);
   const min: V3 = [Infinity, Infinity, Infinity];
   const max: V3 = [-Infinity, -Infinity, -Infinity];
@@ -363,7 +377,7 @@ export function sampleModel(
     }
   }
   const bounds = { min, max };
-  const { normals, variation, spacing } = analyse(raw, total, bounds, car.neighbours);
+  const { normals, variation, spacing } = await analyse(raw, total, bounds, car.neighbours, pause);
 
   const rand = random(15);
   const extras = Math.round(entries * car.edgeExtra);

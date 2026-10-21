@@ -7,10 +7,12 @@ export type EngineOptions = {
   dpr: number;
   mobile: boolean;
   reducedMotion: boolean;
-  /** Absolute URL of the drift car point cloud. */
-  modelUrl: string;
+  /** Page URL the point cloud paths are resolved against. */
+  baseUrl: string;
   /** Report frames per second (development pages). */
   stats: boolean;
+  /** How long the page's intro still covers the scene (ms): loading may hold the thread longer meanwhile. */
+  warmup: number;
 };
 
 /**
@@ -25,9 +27,17 @@ export type SceneStats = { fps: number; points: number; density: number };
 
 export type SceneStatus = "loading" | "ready" | "unsupported" | "error";
 
+/**
+ * Sent once a frame as one transferable array: camera speed (m/s, damped as the engine uses it),
+ * then while the store stop is near the floating products, four numbers each:
+ * [speed, count, x, y, size, form, …] (NDC position, size relative to `store.refDepth`, 0..1 form).
+ */
+export type SceneFrame = Float32Array;
+
 export type EngineEvent =
   | { type: "status"; status: Exclude<SceneStatus, "loading">; message?: string }
-  | { type: "stats"; stats: SceneStats };
+  | { type: "stats"; stats: SceneStats }
+  | { type: "frame"; data: SceneFrame };
 
 export type HostMessage =
   | { type: "init"; canvas: OffscreenCanvas; options: EngineOptions }

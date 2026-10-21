@@ -33,22 +33,22 @@ export type Timeline = {
   stopHalves: number[];
 };
 
-function hermite(d0: number, d1: number, m0: number, m1: number, span: number, t: number) {
+/**
+ * Ride between stops: easeInOutCubic over the distance, plus the two crawl speeds blended in at
+ * the ends (Hermite slope terms), so it leaves one stop and reaches the next at their crawl.
+ */
+function rideCurve(d0: number, d1: number, m0: number, m1: number, span: number, t: number) {
+  const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const t2 = t * t;
   const t3 = t2 * t;
-  return (
-    (2 * t3 - 3 * t2 + 1) * d0 +
-    (t3 - 2 * t2 + t) * span * m0 +
-    (-2 * t3 + 3 * t2) * d1 +
-    (t3 - t2) * span * m1
-  );
+  return d0 + (d1 - d0) * ease + span * (m0 * (t3 - 2 * t2 + t) + m1 * (t3 - t2));
 }
 
 /**
- * Scroll → camera distance. Each chapter is a ride into its stop and a short stretch at the stop
- * where the camera keeps crawling at a fraction of its average ride speed. Rides are Hermite
- * curves whose end slopes match those crawls, so the camera brakes into a stop and pulls away
- * again without a jolt. The page itself always scrolls at its own pace; only the camera slows.
+ * Scroll → camera distance. Each chapter is a quick ride into its stop and a long stretch at the
+ * stop where the camera keeps crawling at a fraction of its average ride speed. Rides speed up and
+ * brake smoothly and meet those crawls at both ends, so there is no jolt. The page itself always
+ * scrolls at its own pace; only the camera slows.
  */
 export function buildTimeline(track: Track, tuning: SceneTuning): Timeline {
   const s = tuning.scroll;
@@ -98,7 +98,7 @@ export function buildTimeline(track: Track, tuning: SceneTuning): Timeline {
   function distanceAt(p: number) {
     const { phase, local } = phaseAt(p);
     if (phase.kind !== "travel") return phase.d0 + (phase.d1 - phase.d0) * local;
-    return hermite(phase.d0, phase.d1, phase.m0, phase.m1, phase.p1 - phase.p0, local);
+    return rideCurve(phase.d0, phase.d1, phase.m0, phase.m1, phase.p1 - phase.p0, local);
   }
 
   const dwells = phases.filter((ph) => ph.kind === "dwell");

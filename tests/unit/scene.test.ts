@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { cameraPose, carPose, carPosition, getRide, stillFrame } from "@/lib/scene/choreography";
+import {
+  bodyPoses,
+  cameraPose,
+  carPose,
+  carPosition,
+  chapterAt,
+  getRide,
+  nearLive,
+  startLights,
+  stillFrame,
+  storeProducts,
+} from "@/lib/scene/choreography";
 import { dot, length, sub } from "@/lib/scene/math";
 import { sceneTuning } from "@/lib/scene-tuning";
 
@@ -74,8 +85,96 @@ describe("drift car", () => {
       const pose = carPose(ride, p);
       if (pose.form <= 0) continue;
       const centre = carPosition(ride, pose);
-      const eye = cameraPose(ride, p, { centre, d: pose.d, u: pose.u }).eye;
+      const eye = cameraPose(ride, p, { drift: { centre, d: pose.d, u: pose.u } }).eye;
       expect(length(sub(eye, centre))).toBeGreaterThan(4);
     }
+  });
+});
+
+describe("later stops", () => {
+  const moving = ["formula", "moto"] as const;
+
+  it("moves the formula car and the bike without jumps", () => {
+    for (const id of moving) {
+      let prev = bodyPoses(ride, 0)[id];
+      for (let i = 1; i <= 6000; i++) {
+        const pose = bodyPoses(ride, i / 6000)[id];
+        if (pose.form > 0 && prev.form > 0) {
+          expect(Math.abs(pose.d - prev.d)).toBeLessThan(1.5);
+          expect(Math.abs(pose.u - prev.u)).toBeLessThan(0.3);
+          expect(Math.abs(pose.roll - prev.roll)).toBeLessThan(0.15);
+        }
+        prev = pose;
+      }
+    }
+  });
+
+  it("keeps the lens clear of every body", () => {
+    for (let i = 0; i <= 4000; i++) {
+      const p = i / 4000;
+      const poses = bodyPoses(ride, p);
+      const mark = (id: "car" | "formula" | "moto") => ({
+        centre: carPosition(ride, poses[id]),
+        d: poses[id].d,
+        u: poses[id].u,
+      });
+      const marks = { drift: mark("car"), formula: mark("formula"), moto: mark("moto") };
+      for (const portrait of [0, 1]) {
+        const eye = cameraPose(ride, p, marks, portrait).eye;
+        for (const id of ["formula", "moto", "gantry"] as const) {
+          const pose = poses[id];
+          if (pose.form <= 0) continue;
+          const at = carPosition(ride, pose);
+          expect(length(sub(eye, at))).toBeGreaterThan(2.5);
+        }
+      }
+    }
+  });
+
+  it("shows each vehicle at its own stop", () => {
+    const at = (id: "formula" | "moto", stop: number) => bodyPoses(ride, timeline.stopCentres[stop])[id].form;
+    expect(at("formula", 1)).toBe(1);
+    expect(at("moto", 2)).toBe(1);
+    expect(at("formula", 3)).toBe(0);
+    expect(at("moto", 0)).toBe(0);
+  });
+
+  it("leans the bike into the corner at its stop", () => {
+    const stop = track.stops[2];
+    const pose = bodyPoses(ride, timeline.stopCentres[2]).moto;
+    expect(Math.sign(pose.roll)).toBe(stop.turn);
+    expect(Math.abs(pose.roll)).toBeGreaterThan(0.6);
+  });
+
+  it("brings the formula car to a stand in frame by the end of its stop", () => {
+    const end = timeline.stopCentres[1] + 0.1 / timeline.chapters;
+    const a = bodyPoses(ride, end).formula;
+    const b = bodyPoses(ride, end + 0.005 / timeline.chapters).formula;
+    expect(a.form).toBe(1);
+    expect(Math.abs(b.d - a.d)).toBeLessThan(1e-6);
+  });
+
+  it("floats the store products only around the store stop", () => {
+    const at = (q: number) => storeProducts(ride, timeline.stopCentres[3] + q / timeline.chapters);
+    expect(at(-0.6).every((item) => item.form === 0)).toBe(true);
+    expect(at(0).every((item) => item.form === 1)).toBe(true);
+    expect(at(0.6).every((item) => item.form === 0)).toBe(true);
+    expect(storeProducts(ride, timeline.stopCentres[2]).every((item) => item.form === 0)).toBe(true);
+  });
+
+  it("lights the start lights one by one near the live stop and keeps them lit", () => {
+    const step = sceneTuning.live.lightStep;
+    expect(startLights(ride, 0)).toEqual([0, 0, 0, 0, 0]);
+    const counts = [1, 2, 3, 4, 5].map((n) => startLights(ride, (n + 0.5) * step).filter((v) => v === 1).length);
+    expect(counts).toEqual([1, 2, 3, 4, 5]);
+    expect(startLights(ride, 60).every((v) => v === 1)).toBe(true);
+    expect(nearLive(ride, timeline.stopCentres[4])).toBe(true);
+    expect(nearLive(ride, timeline.stopCentres[3])).toBe(false);
+  });
+
+  it("switches the current chapter halfway through each ride", () => {
+    expect(chapterAt(ride, 0)).toBe(0);
+    timeline.stopCentres.forEach((c, i) => expect(chapterAt(ride, c)).toBe(i));
+    expect(chapterAt(ride, 1)).toBe(4);
   });
 });

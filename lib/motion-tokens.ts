@@ -28,6 +28,15 @@ export const easing = {
   ride: [0.65, 0, 0.35, 1],
 } as const satisfies Record<string, Bezier>;
 
+/** Cards pulling up and braking: a touch past the mark, then back (about 10% of the travel). */
+export const brake = [0.3, 1.6, 0.5, 1] as const satisfies Bezier;
+
+/** Elements riding in one after another: delay between them (ms) and how far they travel (px). */
+export const stagger = { step: 70, travel: 28 } as const;
+
+/** Start-lights intro: one light every `step`, held `hold`, then out and the page moves off. */
+export const intro = { step: 200, hold: 260, out: 300 } as const;
+
 export function cssEasing(curve: Bezier): string {
   return `cubic-bezier(${curve.join(", ")})`;
 }

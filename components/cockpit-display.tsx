@@ -1,20 +1,13 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useSyncExternalStore } from "react";
+import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getDashboard, HOME_CHAPTERS, rideToStop, subscribeDashboard } from "@/lib/dashboard";
 import type { Messages } from "@/messages";
 
 /** Progress is quantised to 1/24 so both the 6+6 and the 4+4 rows land on whole lights. */
 const STEPS = 24;
-
-function subscribe(onChange: () => void) {
-  window.addEventListener("scroll", onChange, { passive: true });
-  window.addEventListener("resize", onChange);
-  return () => {
-    window.removeEventListener("scroll", onChange);
-    window.removeEventListener("resize", onChange);
-  };
-}
 
 function getProgress() {
   const max = document.documentElement.scrollHeight - window.innerHeight;
@@ -22,22 +15,16 @@ function getProgress() {
   return Math.round(Math.min(1, Math.max(0, window.scrollY / max)) * STEPS) / STEPS;
 }
 
+/** Two quick flashes of the shift lights on a chapter change. */
+const BLINK: Keyframe[] = [1, 0.2, 1, 0.2, 1].map((opacity) => ({ opacity, easing: "steps(1, end)" }));
+
 /**
  * Shift lights: one row split around the data line. The left half fills from the
  * outside in, the right half from the centre out, shading from dim amber to the
- * current chapter colour.
+ * current chapter colour. Lit by the display's own scroll listener, not by React.
  */
-function shiftLights({
-  perSide,
-  progress,
-  className,
-}: {
-  perSide: number;
-  progress: number;
-  className: string;
-}) {
+function shiftLights({ perSide, className }: { perSide: number; className: string }) {
   const total = perSide * 2;
-  const lit = Math.round(progress * total);
 
   const light = (index: number) => {
     const mix = Math.round((index / (total - 1)) * 100);
@@ -45,61 +32,183 @@ function shiftLights({
     return (
       <span key={index} className="relative size-1.5 rounded-full bg-fg/10 sm:size-[7px]">
         <span
-          className="absolute inset-0 rounded-full transition-opacity duration-(--dur-fast) ease-standard"
-          style={{
-            background: colour,
-            boxShadow: `0 0 6px ${colour}`,
-            opacity: index < lit ? 1 : 0,
-          }}
+          data-light={index}
+          data-total={total}
+          className="absolute inset-0 rounded-full opacity-0 transition-opacity duration-(--dur-fast) ease-standard"
+          style={{ background: colour, boxShadow: `0 0 6px ${colour}` }}
         />
       </span>
     );
   };
 
   const side = (from: number) => (
-    <span className="flex items-center gap-1.5 sm:gap-2">
+    <span data-lights className="flex items-center gap-1.5 sm:gap-2">
       {Array.from({ length: perSide }, (_, i) => light(from + i))}
     </span>
   );
 
-  return { left: <span className={className}>{side(0)}</span>, right: <span className={className}>{side(perSide)}</span> };
+  return {
+    left: <span className={className}>{side(0)}</span>,
+    right: <span className={className}>{side(perSide)}</span>,
+  };
 }
 
+/**
+ * The steering-wheel display. Speed, gear, chapter and lights are written straight into the DOM
+ * from the dashboard and the scroll position, so the ride never re-renders the bar. On the home
+ * page the chapter is a button: it opens the list of stops under the bar, and a stop rides there.
+ */
 export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
   const pathname = usePathname() ?? "/";
-  const progress = useSyncExternalStore(subscribe, getProgress, () => 0);
-
-  // Live speed and gear arrive with the scroll engine; the car sits in neutral until then.
-  const speed = 0;
-  const gear = t.neutral;
+  const root = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  /** The list is open, with the chapter that was current when it opened. */
+  const [open, setOpen] = useState<number | null>(null);
 
   const segment = pathname.split("/").filter(Boolean)[1];
   const page = segment ? (t.pages[segment as keyof typeof t.pages] ?? segment.toUpperCase()) : null;
 
-  const wide = shiftLights({ perSide: 6, progress, className: "hidden sm:flex" });
-  const narrow = shiftLights({ perSide: 4, progress, className: "flex sm:hidden" });
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    const lights = Array.from(el.querySelectorAll<HTMLElement>("[data-light]"));
+    const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-lights]"));
+    const field = (name: string) => el.querySelector<HTMLElement>(`[data-field="${name}"]`);
+    const speed = field("speed");
+    const gear = field("gear");
+    const number = field("number");
+    const chapter = field("chapter");
+    const write = (node: HTMLElement | null, text: string) => {
+      if (node && node.textContent !== text) node.textContent = text;
+    };
+
+    let lit = -1;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const progress = getProgress();
+      if (progress === lit) return;
+      lit = progress;
+      for (const light of lights) {
+        const on = Number(light.dataset.light) < Math.round(progress * Number(light.dataset.total));
+        light.style.opacity = on ? "1" : "0";
+      }
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(paint);
+    };
+    paint();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+
+    let blink = 0;
+    const off = subscribeDashboard((d) => {
+      write(speed, String(d.kmh));
+      write(gear, d.gear === 0 ? t.neutral : String(d.gear));
+      const index = d.chapter ?? 0;
+      write(number, String(index + 1).padStart(2, "0"));
+      write(chapter, ` ${t.chapters[index]}`);
+      if (d.blink !== blink) {
+        blink = d.blink;
+        rows.forEach((row) => row.animate(BLINK, { duration: 420 }));
+      }
+    });
+
+    return () => {
+      off();
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [t]);
+
+  useEffect(() => {
+    if (open === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(null);
+      toggle.current?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (!list.current?.contains(target) && !toggle.current?.contains(target)) setOpen(null);
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown);
+    };
+  }, [open]);
+
+  const wide = shiftLights({ perSide: 6, className: "hidden sm:flex" });
+  const narrow = shiftLights({ perSide: 4, className: "flex sm:hidden" });
 
   return (
-    <div role="group" aria-label={t.display} className="flex items-center gap-3 sm:gap-5">
+    <div ref={root} role="group" aria-label={t.display} className="flex items-center gap-3 sm:gap-5">
       {wide.left}
       {narrow.left}
-      <p className="label flex items-center gap-2 text-[11px] whitespace-nowrap text-fg">
+      <div className="label flex items-center gap-2 text-[11px] whitespace-nowrap text-fg">
         {page ? (
           <span>{page}</span>
         ) : (
-          <span>
-            {t.chapter.number}
-            <span className="hidden sm:inline"> {t.chapter.name}</span>
+          <span className="relative">
+            <button
+              ref={toggle}
+              type="button"
+              aria-expanded={open !== null}
+              aria-controls="stop-list"
+              aria-label={t.stops}
+              onClick={() => setOpen((current) => (current === null ? (getDashboard().chapter ?? 0) : null))}
+              className="label -mx-1.5 px-1.5 py-1 underline decoration-transparent underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current aria-expanded:text-accent"
+            >
+              <span data-field="number">01</span>
+              <span data-field="chapter" className="hidden sm:inline">
+                {` ${t.chapters[0]}`}
+              </span>
+            </button>
+            {open !== null ? (
+              <div
+                ref={list}
+                id="stop-list"
+                className="absolute top-[calc(100%+0.85rem)] left-1/2 z-50 -translate-x-1/2 border border-line bg-bg/95 px-4 py-2"
+              >
+                <ol aria-label={t.stops}>
+                  {t.chapters.map((name, i) => (
+                    <li key={name}>
+                      <button
+                        type="button"
+                        aria-current={i === open ? "location" : undefined}
+                        onClick={() => {
+                          setOpen(null);
+                          rideToStop(i);
+                        }}
+                        className="label flex h-8 w-full items-center gap-3 text-[11px] text-muted transition-colors duration-(--dur-fast) ease-standard hover:text-fg aria-[current=location]:text-(--current)"
+                        style={{ "--current": `var(--chapter-${HOME_CHAPTERS[i]})` } as CSSProperties}
+                      >
+                        <span className="tabular-nums">{String(i + 1).padStart(2, "0")}</span>
+                        <span>{name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
           </span>
         )}
         <span aria-hidden className="text-muted">·</span>
         <span>
-          <span className="inline-block min-w-[3ch] text-right">{speed}</span>
+          <span data-field="speed" className="inline-block min-w-[3ch] text-right">
+            0
+          </span>
           <span className="hidden text-muted sm:inline"> {t.speedUnit}</span>
         </span>
         <span aria-hidden className="text-muted">·</span>
-        <span className="inline-block min-w-[1ch]">{gear}</span>
-      </p>
+        <span data-field="gear" className="inline-block min-w-[1ch]">
+          {t.neutral}
+        </span>
+      </div>
       {narrow.right}
       {wide.right}
     </div>

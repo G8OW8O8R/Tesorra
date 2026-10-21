@@ -1,5 +1,5 @@
-import { sceneTuning, type SceneTuning } from "@/lib/scene-tuning";
-import { add, clamp, DEG, hexToLinear, length, lerp, mix, scale, smoothstep, sub, type Vec3 } from "./math";
+import { sceneTuning, type BodyId, type SceneTuning, type StopId } from "@/lib/scene-tuning";
+import { add, clamp, DEG, hexToLinear, length, lerp, mix, normalize, scale, smoothstep, sub, type Vec3 } from "./math";
 import { buildTimeline, type Timeline } from "./timeline";
 import { buildTrack, type Track } from "./track";
 
@@ -115,65 +115,104 @@ export function carPosition(ride: Ride, pose: { d: number; u: number }): Vec3 {
   return add(f.pos, scale(f.side, pose.u));
 }
 
-/** `focus`: depth-of-field focus distance (on the vehicle at stops, on the road ahead between them). */
-export type CameraPose = { eye: Vec3; target: Vec3; distance: number; focus: number };
+/**
+ * `focus`: depth-of-field focus distance (on the vehicle at stops, on the road ahead between them);
+ * `hold`: how fully a stop's framing has taken over (0 riding, 1 held at a stop).
+ */
+export type CameraPose = { eye: Vec3; target: Vec3; distance: number; focus: number; hold: number };
 
-/** Where the drift car is: lifted body centre plus its place on the track. */
+/** Where a stop's vehicle is: lifted body centre plus its place on the track. */
 export type CarMark = { centre: Vec3; d: number; u: number };
+/** The vehicles the camera frames, by the stop they belong to. */
+export type Marks = Partial<Record<StopId, CarMark>>;
+
+/** Camera distances over which a stop's framing holds fully (the drift chase holds for the slide). */
+export function holdWindow(ride: Ride, i: number): [number, number] {
+  const config = ride.tuning.stops[ride.track.stops[i].id];
+  if (!("hold" in config)) return slideWindow(ride);
+  const camera = ride.timeline.stopCameras[i];
+  const [from, to] = config.hold;
+  return [camera + from, camera + to];
+}
 
 /**
- * Camera on the track, blending into each stop's framing. At the drift stop it chases the car:
- * level with it on the inside of the corner, low, so the slide reads as a silhouette.
+ * A stop's own framing at camera distance d. Chase stops ride level with their vehicle on the
+ * inside of the corner, low, so it reads as a silhouette; shot stops stand by the track and
+ * turn after their vehicle as it goes by.
  */
-export function cameraPose(ride: Ride, p: number, car: CarMark | null): CameraPose {
+function stopShot(ride: Ride, i: number, d: number, mark: CarMark | null) {
+  const { track, timeline, tuning } = ride;
+  const stop = track.stops[i];
+  const config = tuning.stops[stop.id];
+  const outside = stop.turn === 0 ? 1 : -stop.turn;
+  const inside = stop.turn || 1;
+  if ("chase" in config && mark) {
+    const c = config.chase;
+    const at = track.frame(mark.d + c.ahead);
+    const eye = add(at.pos, scale(at.side, mark.u - outside * c.inside));
+    eye[1] += c.height;
+    return { eye, target: add(mark.centre, [0, c.aim, 0]), look: config.view.look, subject: mark.centre };
+  }
+  if ("shot" in config) {
+    const s = config.shot;
+    const camera = timeline.stopCameras[i];
+    const place = (along: number, u: number, height: number): Vec3 => {
+      const f = track.frame(along);
+      return add(add(f.pos, scale(f.side, u)), [0, height, 0]);
+    };
+    const eyeAt = camera + s.eye[0] + s.creep * (d - camera);
+    const eye = place(eyeAt, inside * s.eye[1], s.eye[2]);
+    let target = place(camera + s.aim[0], inside * s.aim[1], s.aim[2]);
+    let subject = target;
+    if (mark && s.follow > 0) {
+      // Never aim behind the lens: a car still coming up from behind is followed from just ahead.
+      const lift = mark.centre[1] - track.frame(mark.d).pos[1];
+      const seen = mark.d < eyeAt + 1.5 ? place(eyeAt + 1.5, mark.u, lift) : mark.centre;
+      target = mix(target, seen, s.follow);
+      subject = mark.centre;
+    }
+    return { eye, target, look: config.view.look, subject };
+  }
+  // A chase stop whose vehicle is not there: ride on and frame the apex.
+  const f = track.frame(d);
+  const apex = add(track.frame(stop.distance).pos, [0, tuning.camera.targetHeight, 0]);
+  const eye = add(add(f.pos, scale(f.side, tuning.camera.lateral)), [0, tuning.camera.height, 0]);
+  return { eye, target: apex, look: config.view.look, subject: apex };
+}
+
+/**
+ * Camera on the track, blending into each stop's framing around its hold. `portrait` (0..1)
+ * backs the camera off what a stop frames, so the whole vehicle fits a narrow screen.
+ */
+export function cameraPose(ride: Ride, p: number, marks: Marks = {}, portrait = 0): CameraPose {
   const { track, timeline, tuning } = ride;
   const cam = tuning.camera;
   const d = timeline.distanceAt(p);
   const f = track.frame(d);
   const ahead = track.frame(d + cam.lookAhead);
 
-  let side: number = cam.lateral;
-  let height: number = cam.height;
+  let eye = add(add(f.pos, scale(f.side, cam.lateral)), [0, cam.height, 0]);
   let target: Vec3 = [ahead.pos[0], ahead.pos[1] + cam.targetHeight, ahead.pos[2]];
-  let chase: { eye: Vec3; w: number } | null = null;
-  // What the lens holds sharp at the strongest nearby stop: the vehicle, or the apex until there is one.
+  // What the lens holds sharp at the strongest nearby stop.
   let subject: { pos: Vec3; w: number } | null = null;
 
-  track.stops.forEach((stop, i) => {
-    const config = tuning.stops[stop.id];
-    const view = config.view;
-    // The chase holds for the whole slide; other stops hold for their crawl.
-    const [from, to] = "chase" in config ? slideWindow(ride) : [timeline.stopCameras[i], timeline.stopCameras[i]];
-    const half = "chase" in config ? (to - from) / 2 : timeline.stopHalves[i];
-    const centre = (from + to) / 2;
-    const w = 1 - smoothstep(half, half + tuning.scroll.stopBlend, Math.abs(d - centre));
-    if (w <= 0) return;
-    const outside = stop.turn === 0 ? 1 : -stop.turn;
-    const held = subject as { pos: Vec3; w: number } | null;
-    if (!held || w > held.w) {
-      subject = { pos: "chase" in config && car ? car.centre : track.frame(stop.distance).pos, w };
-    }
-    if ("chase" in config && car) {
-      const c = config.chase;
-      const at = track.frame(car.d + c.ahead);
-      const eye = add(at.pos, scale(at.side, car.u - outside * c.inside));
-      eye[1] += c.height;
-      chase = { eye, w };
-      target = mix(target, add(car.centre, [0, c.aim, 0]), w * view.look);
-      return;
-    }
-    side = lerp(side, outside * view.side, w);
-    height = lerp(height, view.height, w);
-    // Stops without a body yet frame their apex.
-    target = mix(target, add(track.frame(stop.distance).pos, [0, cam.targetHeight, 0]), w * view.look);
-  });
+  for (let i = 0; i < track.stops.length; i++) {
+    const [from, to] = holdWindow(ride, i);
+    const half = Math.max((to - from) / 2, timeline.stopHalves[i]);
+    const w = 1 - smoothstep(half, half + tuning.scroll.stopBlend, Math.abs(d - (from + to) / 2));
+    if (w <= 0) continue;
+    const shot = stopShot(ride, i, d, marks[track.stops[i].id] ?? null);
+    eye = mix(eye, shot.eye, w);
+    target = mix(target, shot.target, w * shot.look);
+    if (!subject || w > subject.w) subject = { pos: shot.subject, w };
+  }
 
-  let eye = add(add(f.pos, scale(f.side, side)), [0, height, 0]);
-  const chased = chase as { eye: Vec3; w: number } | null;
-  if (chased) eye = mix(eye, chased.eye, chased.w);
-  const held = subject as { pos: Vec3; w: number } | null;
-  const focus = held ? lerp(tuning.dof.roadFocus, length(sub(held.pos, eye)), held.w) : tuning.dof.roadFocus;
-  return { eye, target, distance: d, focus };
+  const hold = subject ? subject.w : 0;
+  if (portrait > 0 && hold > 0) {
+    eye = add(target, scale(sub(eye, target), 1 + (cam.portraitPull - 1) * portrait * hold));
+  }
+  const focus = subject ? lerp(tuning.dof.roadFocus, length(sub(subject.pos, eye)), subject.w) : tuning.dof.roadFocus;
+  return { eye, target, distance: d, focus, hold };
 }
 
 const palettes = {
@@ -199,4 +238,210 @@ export function chapterColour(ride: Ride, p: number, palette: keyof typeof palet
 export function stillFrame(ride: Ride, p: number) {
   const frames = [0, ...ride.timeline.stopCentres];
   return frames.reduce((best, f) => (Math.abs(f - p) < Math.abs(best - p) ? f : best), 0);
+}
+
+/** Pose of any dust body: place on the track, rotation, assembly (0..1) and its run progress. */
+export type BodyPose = CarPose & {
+  /** Rotate about the tyre contact instead of the body centre (a leaning bike). */
+  pivot?: "ground";
+};
+
+function stopIndex(ride: Ride, id: StopId) {
+  return ride.track.stops.findIndex((s) => s.id === id);
+}
+
+/** Chapters from the middle of a stop (negative before it). */
+export function chapterOffset(ride: Ride, p: number, id: StopId) {
+  return (p - ride.timeline.stopCentres[stopIndex(ride, id)]) * ride.timeline.chapters;
+}
+
+/** Camera distances of the formula car's hold, the track distances of its run and its pace off the mark. */
+function formulaRun(ride: Ride) {
+  const f = ride.tuning.formula;
+  const i = stopIndex(ride, "formula");
+  const [c0, c1] = holdWindow(ride, i);
+  const camera = ride.timeline.stopCameras[i];
+  const start = camera + f.from;
+  const rest = camera + f.rest[0];
+  // Metres of track per metre of camera travel as the hold begins, kept for the approach.
+  const pace = ((rest - start) * f.power) / (f.brake * (c1 - c0));
+  return { stop: ride.track.stops[i], c0, c1, start, rest, pace };
+}
+
+/** The formula car at run progress t: flat out past the lens, braking hard, standing from `brake` on. */
+export function formulaAt(ride: Ride, t: number) {
+  const { track, tuning } = ride;
+  const f = tuning.formula;
+  const run = formulaRun(ride);
+  const inside = run.stop.turn || 1;
+  const k = clamp(t / f.brake, 0, 1);
+  const d = lerp(run.start, run.rest, 1 - Math.pow(1 - k, f.power));
+  return {
+    d,
+    u: inside * lerp(f.lane, f.rest[1], smoothstep(0.3, 1, k)),
+    // Positive yaw turns left, so the nose turns in against the corner's sign.
+    yaw: track.yaw(d) - inside * f.turnIn * DEG * smoothstep(0.5, 1, k),
+    pitch: 0,
+    roll: 0,
+  };
+}
+
+export function formulaPose(ride: Ride, p: number): BodyPose {
+  const f = ride.tuning.formula;
+  const run = formulaRun(ride);
+  const camera = ride.timeline.distanceAt(p);
+  const t = (camera - run.c0) / (run.c1 - run.c0);
+  if (t < 0) {
+    // Coming up flat out from behind the lens, assembling out of sight.
+    const d = run.start + (camera - run.c0) * run.pace;
+    const form = smoothstep(-f.assemble, 0, t);
+    return { ...formulaAt(ride, 0), d, yaw: ride.track.yaw(d), form, slide: t };
+  }
+  if (t <= 1) return { ...formulaAt(ride, t), form: 1, slide: t };
+  // Pulls away from a standstill as the ride moves on, then dissolves.
+  const rest = formulaAt(ride, 1);
+  const gone = camera - run.c1;
+  const d = rest.d + (f.runAway * gone * gone) / (gone + 6);
+  const settle = smoothstep(0, 12, gone);
+  return {
+    d,
+    u: lerp(rest.u, 0, settle),
+    yaw: lerp(rest.yaw, ride.track.yaw(d), settle),
+    pitch: 0,
+    roll: 0,
+    form: 1 - smoothstep(f.dissolve[0], f.dissolve[1], gone),
+    slide: t,
+  };
+}
+
+function motoRun(ride: Ride) {
+  const m = ride.tuning.moto;
+  const i = stopIndex(ride, "moto");
+  const stop = ride.track.stops[i];
+  const [c0, c1] = holdWindow(ride, i);
+  const start = stop.distance - m.entry;
+  const end = stop.distance + m.exit;
+  return { stop, c0, c1, start, end, pace: (end - start) / (c1 - c0) };
+}
+
+/** The bike at lean progress t through the moto corner: out-in-out, down to full lean mid-corner. */
+export function motoAt(ride: Ride, t: number) {
+  const { track, tuning } = ride;
+  const m = tuning.moto;
+  const run = motoRun(ride);
+  const inside = run.stop.turn || 1;
+  const k = clamp(t, 0, 1);
+  const d = lerp(run.start, run.end, k);
+  const lean = m.lean * DEG * smoothstep(0.08, 0.38, k) * (1 - smoothstep(0.62, 0.92, k));
+  return {
+    d,
+    u: -inside * m.lane * (1 - 2 * Math.sin(Math.PI * k) ** 2),
+    yaw: track.yaw(d),
+    pitch: 0,
+    roll: inside * lean,
+  };
+}
+
+export function motoPose(ride: Ride, p: number): BodyPose {
+  const m = ride.tuning.moto;
+  const run = motoRun(ride);
+  const camera = ride.timeline.distanceAt(p);
+  const t = (camera - run.c0) / (run.c1 - run.c0);
+  const before = camera - run.c0;
+  if (t < 0) {
+    // Rides beside the camera at its pace, upright, assembling from the dust.
+    const d = run.start + before * run.pace;
+    const form = smoothstep(m.assemble[0], m.assemble[1], before);
+    return { ...motoAt(ride, 0), d, yaw: ride.track.yaw(d), form, slide: t, pivot: "ground" };
+  }
+  if (t <= 1) return { ...motoAt(ride, t), form: 1, slide: t, pivot: "ground" };
+  const exit = motoAt(ride, 1);
+  const gone = camera - run.c1;
+  const d = exit.d + gone * m.runAway;
+  return {
+    d,
+    u: lerp(exit.u, 0, smoothstep(0, 12, gone)),
+    yaw: ride.track.yaw(d),
+    pitch: 0,
+    roll: 0,
+    form: 1 - smoothstep(m.dissolve[0], m.dissolve[1], d - camera),
+    slide: t,
+    pivot: "ground",
+  };
+}
+
+let storeCache: { ride: Ride; eye: Vec3; fwd: Vec3; right: Vec3 } | null = null;
+
+/** The store camera at the middle of its stop, level: the products are set out in front of it. */
+function storeView(ride: Ride) {
+  if (storeCache?.ride !== ride) {
+    const view = cameraPose(ride, ride.timeline.stopCentres[stopIndex(ride, "store")]);
+    const fwd = normalize([view.target[0] - view.eye[0], 0, view.target[2] - view.eye[2]]);
+    storeCache = { ride, eye: view.eye, fwd, right: [-fwd[2], 0, fwd[0]] };
+  }
+  return storeCache;
+}
+
+/**
+ * The floating store products: where each one hangs in the world (before its drift) and how far
+ * it has come out of the dust (0 gone, 1 whole).
+ */
+export function storeProducts(ride: Ride, p: number): { pos: Vec3; form: number }[] {
+  const s = ride.tuning.store;
+  const q = chapterOffset(ride, p, "store");
+  const view = storeView(ride);
+  // Spots are given for a 16:9 view at the stop.
+  const tanV = Math.tan((ride.tuning.camera.fov * DEG) / 2);
+  return s.products.map(({ at: [x, y], depth }, i) => {
+    const k = i * s.stagger;
+    const form =
+      smoothstep(s.appear[0] + k, s.appear[1] + k, q) * (1 - smoothstep(s.vanish[0] + k, s.vanish[1] + k, q));
+    const pos = add(
+      add(add(view.eye, scale(view.fwd, depth)), scale(view.right, x * depth * tanV * (16 / 9))),
+      [0, y * depth * tanV, 0],
+    );
+    return { pos, form };
+  });
+}
+
+/** The start gantry over the grid; it only assembles, then stands. */
+export function gantryPose(ride: Ride, p: number): BodyPose {
+  const { track, tuning } = ride;
+  const l = tuning.live;
+  const d = track.stops[stopIndex(ride, "live")].distance + l.gantry;
+  const form = smoothstep(l.assemble[0], l.assemble[1], chapterOffset(ride, p, "live"));
+  return { d, u: 0, yaw: track.yaw(d), pitch: 0, roll: 0, form, slide: 0 };
+}
+
+/** Whether the ride is close enough to the live stop for its start lights to run. */
+export function nearLive(ride: Ride, p: number) {
+  return chapterOffset(ride, p, "live") >= ride.tuning.live.lightsFrom;
+}
+
+/**
+ * Brightness of the five start lights (0 off … 1 on) `seconds` after the ride came near the live
+ * stop: on one by one every `lightStep`, then all five stay lit.
+ */
+export function startLights(ride: Ride, seconds: number): number[] {
+  const step = ride.tuning.live.lightStep;
+  return [0, 1, 2, 3, 4].map((i) => clamp((seconds - (i + 1) * step) / 0.05, 0, 1));
+}
+
+/** Every dust body's pose at scroll progress p. */
+export function bodyPoses(ride: Ride, p: number): Record<BodyId, BodyPose> {
+  return {
+    car: carPose(ride, p),
+    formula: formulaPose(ride, p),
+    moto: motoPose(ride, p),
+    gantry: gantryPose(ride, p),
+  };
+}
+
+/** Stop whose chapter is current: the next one takes over halfway through each ride. */
+export function chapterAt(ride: Ride, p: number) {
+  const { phase, local } = ride.timeline.phaseAt(p);
+  if (phase.kind === "hero") return 0;
+  if (phase.kind === "tail") return ride.track.stops.length - 1;
+  if (phase.kind === "travel" && local < 0.5) return Math.max(0, phase.stop - 1);
+  return phase.stop;
 }

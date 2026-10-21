@@ -27,6 +27,9 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-ride: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-brake: cubic-bezier(0.3, 1.6, 0.5, 1);
+  --stagger: 70ms;
+  --travel: 28px;
 
   color-scheme: dark;
 }
@@ -46,6 +49,7 @@
   --color-live: var(--chapter-live);
 
   --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
   --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
@@ -55,6 +59,12 @@
 }
 
 @layer base {
+  /* Nothing may push the page sideways; clip (unlike hidden) leaves sticky and fixed alone. */
+  html,
+  body {
+    overflow-x: clip;
+  }
+
   html {
     background: var(--bg);
     color: var(--fg);
@@ -87,6 +97,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Headings in the wordmark's voice: heavy, italic, sharp. */
+@utility headline {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-style: italic;
+  font-variation-settings:
+    "SOFT" 0,
+    "opsz" 144;
+}
+
 @utility panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -94,7 +114,156 @@
   -webkit-backdrop-filter: blur(12px);
 }
 
+/* Children marked data-enter ride in when their container gets data-on; --i staggers them. */
+.ride-in [data-enter] {
+  opacity: 0;
+  translate: 0 var(--travel);
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-brake);
+  transition-delay: calc(var(--i, 0) * var(--stagger));
+}
+
+.ride-in[data-on] [data-enter] {
+  opacity: 1;
+  translate: 0 0;
+}
+
+/*
+ * Chapter stops: hidden until the page sets data-on. The outlined number draws itself, the
+ * letters of the name rise out of a mask one after another, the lines follow and the print
+ * slides in from the right (tilted like a photo laid on the table).
+ */
+.stop {
+  visibility: hidden;
+  transition: visibility 0s linear var(--dur-slow);
+}
+
+.stop[data-on] {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.stop-number text {
+  stroke-dasharray: 2400;
+  stroke-dashoffset: 2400;
+  transition: stroke-dashoffset 1400ms var(--ease-out);
+}
+
+.stop[data-on] .stop-number text {
+  stroke-dashoffset: 0;
+}
+
+.stop-mask {
+  display: inline-block;
+  clip-path: inset(-0.4em -0.3em -0.12em -0.3em);
+}
+
+.stop-letter {
+  display: inline-block;
+  translate: 0 115%;
+  transition: translate var(--dur-slow) var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 20ms);
+}
+
+.stop[data-on] .stop-letter {
+  translate: 0 0;
+  transition-delay: calc(120ms + var(--i, 0) * 28ms);
+}
+
+.stop-line,
+.stop-print {
+  opacity: 0;
+  translate: 0 var(--travel);
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-brake);
+}
+
+.stop[data-on] .stop-line {
+  opacity: 1;
+  translate: 0 0;
+  transition-delay: calc(360ms + var(--i, 0) * var(--stagger));
+}
+
+.stop[data-on] .stop-print {
+  opacity: 1;
+  translate: 0 0;
+  transition-delay: 200ms;
+}
+
+@media (min-width: 48rem) {
+  .stop-print {
+    translate: 40vw -50%;
+    rotate: var(--tilt, 0deg);
+  }
+
+  .stop[data-on] .stop-print {
+    translate: 0 -50%;
+  }
+}
+
+/* The bar's wordmark waits while the hero wordmark is still flying into place. */
+body:has([data-hero-mark]:not([data-docked])) [data-bar-wordmark] {
+  opacity: 0;
+}
+
+/* Start-lights intro: five lights on one by one, all out together, then the page moves off. */
+.intro {
+  animation: intro-out var(--intro-out) var(--ease-in) var(--intro-end) both;
+}
+
+/* Light i comes on at (i + 1) steps and stays lit until they all go out at --intro-end. */
+.intro-light {
+  opacity: 0;
+  animation: intro-on calc(var(--intro-end) - (var(--i) + 1) * var(--intro-step)) steps(1, end);
+  animation-delay: calc((var(--i) + 1) * var(--intro-step));
+}
+
+@keyframes intro-on {
+  0%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes intro-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+html[data-intro="skip"] .intro {
+  display: none;
+}
+
+html[data-intro="skip"] .home {
+  --intro-delay: 0ms;
+}
+
+/* The hero waits for the lights, then pulls away. */
+.hero-enter {
+  animation: hero-enter var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(var(--intro-delay, 0ms) + var(--i, 0) * var(--stagger));
+}
+
+@keyframes hero-enter {
+  from {
+    opacity: 0;
+    translate: 0 var(--travel);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .intro {
+    display: none;
+  }
+
+  .ride-in [data-enter] {
+    translate: none;
+  }
+
   *,
   *::before,
   *::after {

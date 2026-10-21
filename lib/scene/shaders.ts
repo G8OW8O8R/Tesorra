@@ -72,6 +72,11 @@ uniform vec4 uSmokeB;
 uniform vec2 uSmokeSize;
 uniform vec2 uSmokeLife;
 uniform vec2 uSmokeFade;
+uniform float uSmokeStreak;
+
+// Set by smokeWorld: the emitter's backward direction and how far the grain has grown.
+vec3 smokeBack;
+float smokeGrowth;
 
 vec4 emitter(int row, float b) {
   float x = clamp(b, 0.0, 1.0) * float(uEmitCount - 1);
@@ -86,11 +91,15 @@ vec3 smokeWorld(vec3 pos, vec4 seed, out float alpha, out float size) {
   float age = uSlide - birth;
   alpha = 0.0;
   size = 1.0;
+  smokeBack = vec3(0.0);
+  smokeGrowth = 1.0;
   if (age <= 0.0) return vec3(0.0);
   float e = clamp(age / uSmokeA.x, 0.0, 1.0);
   float grow = 1.0 - (1.0 - e) * (1.0 - e);
   vec4 origin = emitter(int(pos.y), birth);
   vec3 back = emitter(2, birth).xyz;
+  smokeBack = back;
+  smokeGrowth = grow;
 
   vec3 h = hash3(seed.xy * 23.0);
   vec3 dir = normalize(hash3(seed.zw * 19.0) * 2.0 - 1.0 + vec3(0.0, 1e-3, 0.0));
@@ -120,13 +129,16 @@ const STATE = /* glsl */ `
 uniform highp sampler2D uSimOffset;
 uniform highp sampler2D uSimVelocity;
 uniform int uSimWidth;
+uniform int uSimBase;
 uniform float uSimOn;
 uniform float uDt;
 
+// Bodies sharing one state texture each own a block of rows starting at texel uSimBase.
 void simState(int id, out vec3 offset, out vec3 velocity) {
   offset = vec3(0.0);
   velocity = vec3(0.0);
   if (uSimOn <= 0.0) return;
+  id += uSimBase;
   ivec2 px = ivec2(id % uSimWidth, id / uSimWidth);
   offset = texelFetch(uSimOffset, px, 0).xyz;
   velocity = texelFetch(uSimVelocity, px, 0).xyz;
@@ -251,14 +263,8 @@ function particleVertex(body: string) {
   return PARTICLE_HEAD + body + PARTICLE_MAIN;
 }
 
-/**
- * Track, edges, terrain, fog and stars: fixed positions, optional camera-follow and churn.
- * Terrain grains near the cursor ray are nudged aside with a Gaussian falloff, without state.
- */
-export const staticVertex = particleVertex(/* glsl */ `
-uniform vec3 uPrevCamPos;
-uniform float uFollow;
-uniform vec3 uDrift;
+/** Grains near the cursor ray pushed aside with a Gaussian falloff, without state. */
+const NUDGE = /* glsl */ `
 uniform vec2 uNudge;
 uniform vec3 uRayOrigin;
 uniform vec3 uRayDir;
@@ -273,6 +279,17 @@ vec3 nudge(vec3 p) {
   if (r > 3.0 || dist < 1e-4) return vec3(0.0);
   return perp / dist * uNudge.y * exp(-2.0 * r * r);
 }
+`;
+
+/**
+ * Track, edges, terrain, fog and stars: fixed positions, optional camera-follow and churn.
+ * Terrain grains near the cursor ray are nudged aside.
+ */
+export const staticVertex = particleVertex(/* glsl */ `
+uniform vec3 uPrevCamPos;
+uniform float uFollow;
+uniform vec3 uDrift;
+${NUDGE}
 
 vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
   vec3 p = aPos;
@@ -286,7 +303,8 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
 
 /**
  * Vehicle point cloud. Each model point is drawn `uCopies` times (attribute divisor); points on
- * edges and creases (aFrame.w) glow brighter. Grains the cursor throws streak along their motion.
+ * edges and creases (aFrame.w) glow brighter. Grains the cursor throws streak along their motion;
+ * without the simulation (phones) the cursor only nudges them aside.
  */
 export const bodyVertex = particleVertex(/* glsl */ `
 layout(location = 3) in vec4 aFrame;
@@ -295,6 +313,7 @@ uniform mat4 uPrevModel;
 uniform float uEdgeBoost;
 ${BODY}
 ${STATE}
+${NUDGE}
 
 vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul, inout float whiteMix) {
   float copy = float(gl_InstanceID % uCopies);
@@ -307,12 +326,17 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
   vec3 offset;
   vec3 velocity;
   simState(gl_InstanceID, offset, velocity);
-  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz + offset - velocity * uDt;
-  return (uModel * vec4(local, 1.0)).xyz + offset;
+  vec3 world = (uModel * vec4(local, 1.0)).xyz + offset;
+  vec3 push = uNudge.y > 0.0 ? nudge(world) : vec3(0.0);
+  prevWorld = (uPrevModel * vec4(local, 1.0)).xyz + offset - velocity * uDt + push;
+  return world + push;
 }
 `);
 
-/** Tyre smoke: rest position from the slide, plus its simulated offset. */
+/**
+ * Tyre smoke, the formula's wake and the knee sparks: rest position from their run, plus a
+ * simulated offset (smoke only). Fresh grains can streak back along the emitter's path.
+ */
 export const smokeVertex = particleVertex(/* glsl */ `
 ${SMOKE}
 ${STATE}
@@ -326,7 +350,7 @@ vec3 particleWorld(out vec3 prevWorld, inout float sizeMul, inout float alphaMul
   vec3 offset;
   vec3 velocity;
   simState(gl_InstanceID, offset, velocity);
-  prevWorld = p + offset - velocity * uDt;
+  prevWorld = p + offset - velocity * uDt + smokeBack * uSmokeStreak * (1.0 - smokeGrowth);
   return p + offset;
 }
 `);
@@ -349,6 +373,7 @@ uniform sampler2D uDataPos;
 uniform sampler2D uDataSeed;
 uniform int uWidth;
 uniform int uCount;
+uniform int uSimBase;
 uniform float uDt;
 uniform vec4 uSpring;
 uniform vec4 uCursor;
@@ -398,7 +423,7 @@ uniform sampler2D uDataFrame;
 
 void main() {
   ivec2 px = ivec2(gl_FragCoord.xy);
-  int id = px.y * uWidth + px.x;
+  int id = px.y * uWidth + px.x - uSimBase;
   if (id >= uCount) {
     outOffset = vec4(0.0);
     outVelocity = vec4(0.0);
