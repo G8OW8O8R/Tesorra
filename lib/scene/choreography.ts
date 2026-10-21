@@ -57,18 +57,23 @@ export function slidePose(ride: Ride, t: number) {
 export function carPose(ride: Ride, p: number): CarPose {
   const { track, timeline, tuning } = ride;
   const c = tuning.car;
-  const { phase, local } = timeline.phaseAt(p);
+  const { phase } = timeline.phaseAt(p);
   const stop = track.stops[0];
   const outside = stop.turn === 0 ? 1 : -stop.turn;
   const camera = timeline.distanceAt(p);
+  // The slide runs while the camera covers the car's path through the corner, so it slows down
+  // with the camera at the stop and the car holds its widest angle there.
+  const [start, end] = slideWindow(ride);
+  const launchFrom = timeline.phases[0].d1;
 
   if (phase.kind === "hero") {
     const d = c.heroDistance;
     return { d, u: c.heroLateral, yaw: track.yaw(d) + c.heroYaw * DEG, pitch: 0, roll: 0, form: 1, slide: 0 };
   }
 
-  if (phase.stop === 0 && phase.kind === "travel") {
+  if (camera < start) {
     // Launch: the car pulls ahead of the camera and swings to the outside for the entry.
+    const local = clamp((camera - launchFrom) / (start - launchFrom), 0, 1);
     const s = ease(Math.pow(local, 0.8));
     const d = lerp(c.heroDistance, stop.distance - c.entry, s);
     const u = lerp(c.heroLateral, outside * c.lane, ease(local));
@@ -77,14 +82,14 @@ export function carPose(ride: Ride, p: number): CarPose {
     return { d, u, yaw: track.yaw(d) + c.heroYaw * DEG * straighten, pitch: squat, roll: 0, form: 1, slide: 0 };
   }
 
-  if (phase.stop === 0 && phase.kind === "dwell") {
+  if (camera <= end) {
+    const local = (camera - start) / (end - start);
     return { ...slidePose(ride, local), form: 1, slide: local };
   }
 
   // After the slide: straighten up, run away from the camera and dissolve.
-  const dwell = timeline.phases.find((ph) => ph.kind === "dwell" && ph.stop === 0)!;
   const exit = slidePose(ride, 1);
-  const gone = Math.max(0, camera - dwell.d1);
+  const gone = camera - end;
   const d = exit.d + gone * c.runAway;
   const settle = smoothstep(0, 12, gone);
   return {
@@ -94,8 +99,14 @@ export function carPose(ride: Ride, p: number): CarPose {
     pitch: 0,
     roll: lerp(exit.roll, 0, settle),
     form: 1 - smoothstep(c.dissolve[0], c.dissolve[1], d - camera),
-    slide: 1 + Math.max(0, p - dwell.p1) / (dwell.p1 - dwell.p0),
+    slide: 1 + gone / (end - start),
   };
+}
+
+/** Camera distances over which the car slides through the drift corner (its entry to its exit). */
+export function slideWindow(ride: Ride): [number, number] {
+  const apex = ride.track.stops[0].distance;
+  return [apex - ride.tuning.car.entry, apex + ride.tuning.car.exit];
 }
 
 /** World position of the body centre on the road surface (before lifting by the model's floor). */
@@ -131,8 +142,11 @@ export function cameraPose(ride: Ride, p: number, car: CarMark | null): CameraPo
   track.stops.forEach((stop, i) => {
     const config = tuning.stops[stop.id];
     const view = config.view;
-    const half = view.dwell / 2;
-    const w = 1 - smoothstep(half, half + tuning.scroll.stopBlend, Math.abs(d - timeline.stopCameras[i]));
+    // The chase holds for the whole slide; other stops hold for their crawl.
+    const [from, to] = "chase" in config ? slideWindow(ride) : [timeline.stopCameras[i], timeline.stopCameras[i]];
+    const half = "chase" in config ? (to - from) / 2 : timeline.stopHalves[i];
+    const centre = (from + to) / 2;
+    const w = 1 - smoothstep(half, half + tuning.scroll.stopBlend, Math.abs(d - centre));
     if (w <= 0) return;
     const outside = stop.turn === 0 ? 1 : -stop.turn;
     const held = subject as { pos: Vec3; w: number } | null;

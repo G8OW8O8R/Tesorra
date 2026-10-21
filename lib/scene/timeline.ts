@@ -19,17 +19,18 @@ export type Phase = {
 };
 
 export type Timeline = {
-  /** Scroll length of the whole ride in screens. */
-  screens: number;
+  /** Scroll length of the whole ride in chapters (multiply by the chapter height per device). */
+  chapters: number;
   phases: Phase[];
   /** Camera distance along the track for scroll progress 0..1. */
   distanceAt(p: number): number;
   /** Phase containing p and the local progress inside it. */
   phaseAt(p: number): { phase: Phase; local: number };
-  /** Scroll progress at the middle of each stop's dwell. */
+  /** Scroll progress at the middle of each stop. */
   stopCentres: number[];
-  /** Camera distance at the middle of each stop's dwell. */
+  /** Camera distance at the middle of each stop, and half the distance it crawls through it. */
   stopCameras: number[];
+  stopHalves: number[];
 };
 
 function hermite(d0: number, d1: number, m0: number, m1: number, span: number, t: number) {
@@ -44,34 +45,40 @@ function hermite(d0: number, d1: number, m0: number, m1: number, span: number, t
 }
 
 /**
- * Scroll → camera distance. Dwells are slow linear creeps; travels are Hermite curves
- * whose end slopes match the dwells, so the camera accelerates away from a stop and
- * brakes into the next one without a jolt.
+ * Scroll → camera distance. Each chapter is a ride into its stop and a short stretch at the stop
+ * where the camera keeps crawling at a fraction of its average ride speed. Rides are Hermite
+ * curves whose end slopes match those crawls, so the camera brakes into a stop and pulls away
+ * again without a jolt. The page itself always scrolls at its own pace; only the camera slows.
  */
 export function buildTimeline(track: Track, tuning: SceneTuning): Timeline {
   const s = tuning.scroll;
   const stopCameras = track.stops.map((stop) => stop.distance - tuning.stops[stop.id].view.back);
+  const ride = 1 - s.stopShare;
 
-  type Draft = Omit<Phase, "p0" | "p1" | "m0" | "m1"> & { screens: number };
-  const drafts: Draft[] = [{ kind: "hero", stop: -1, d0: 0, d1: s.heroDistance, screens: s.hero }];
+  type Draft = Omit<Phase, "p0" | "p1" | "m0" | "m1"> & { units: number };
+  const drafts: Draft[] = [{ kind: "hero", stop: -1, d0: 0, d1: s.heroDistance, units: s.hero }];
+  const stopHalves: number[] = [];
   stopCameras.forEach((c, i) => {
-    const prev = drafts[drafts.length - 1].d1;
-    const half = tuning.stops[track.stops[i].id].view.dwell / 2;
-    drafts.push({ kind: "travel", stop: i, d0: prev, d1: c - half, screens: s.travel });
-    drafts.push({ kind: "dwell", stop: i, d0: c - half, d1: c + half, screens: s.dwell });
+    const from = drafts[drafts.length - 1].d1;
+    // Crawl speed = `stopSpeed` × the ride's average speed:
+    // 2h / stopShare = stopSpeed · (c − from − h) / ride  →  solve for the half-length h.
+    const h = (s.stopSpeed * s.stopShare * (c - from)) / (2 * ride + s.stopSpeed * s.stopShare);
+    stopHalves.push(h);
+    drafts.push({ kind: "travel", stop: i, d0: from, d1: c - h, units: ride });
+    drafts.push({ kind: "dwell", stop: i, d0: c - h, d1: c + h, units: s.stopShare });
   });
   const last = drafts[drafts.length - 1].d1;
-  drafts.push({ kind: "tail", stop: -1, d0: last, d1: last + s.tailDistance, screens: s.tail });
+  drafts.push({ kind: "tail", stop: -1, d0: last, d1: last + s.tailDistance, units: s.tail });
 
-  const screens = drafts.reduce((sum, d) => sum + d.screens, 0);
+  const chapters = drafts.reduce((sum, d) => sum + d.units, 0);
   let cursor = 0;
-  const phases: Phase[] = drafts.map(({ screens: len, ...d }) => {
-    const p0 = cursor / screens;
-    cursor += len;
-    return { ...d, p0, p1: cursor / screens, m0: 0, m1: 0 };
+  const phases: Phase[] = drafts.map(({ units, ...d }) => {
+    const p0 = cursor / chapters;
+    cursor += units;
+    return { ...d, p0, p1: cursor / chapters, m0: 0, m1: 0 };
   });
 
-  // Linear phases keep their own slope; travels inherit their neighbours' slopes.
+  // Linear phases keep their own slope; rides inherit their neighbours' slopes.
   const linear = (ph: Phase) => (ph.d1 - ph.d0) / (ph.p1 - ph.p0);
   phases.forEach((ph, i) => {
     if (ph.kind !== "travel") {
@@ -96,11 +103,12 @@ export function buildTimeline(track: Track, tuning: SceneTuning): Timeline {
 
   const dwells = phases.filter((ph) => ph.kind === "dwell");
   return {
-    screens,
+    chapters,
     phases,
     distanceAt,
     phaseAt,
     stopCentres: dwells.map((ph) => (ph.p0 + ph.p1) / 2),
     stopCameras,
+    stopHalves,
   };
 }

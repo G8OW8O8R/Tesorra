@@ -2,10 +2,11 @@
 
 import Lenis from "lenis";
 import "lenis/dist/lenis.css";
-import { useEffect, useRef, type FormEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type FormEvent } from "react";
 import { DustCanvas, type DustSceneHandle } from "@/components/scene/dust-canvas";
 import { getRide } from "@/lib/scene/choreography";
 import { clamp } from "@/lib/scene/math";
+import { sceneTuning } from "@/lib/scene-tuning";
 import type { SceneStats } from "@/lib/scene/protocol";
 
 const SLIDER_STEPS = 1000;
@@ -55,7 +56,11 @@ export function RoadPrototype() {
     };
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const smooth = reduced ? null : new Lenis({ autoRaf: true });
+    // Smooth wheel scrolling on desktop; touch keeps the native feel. The page never slows down,
+    // only the camera does.
+    const smooth = reduced
+      ? null
+      : new Lenis({ autoRaf: true, syncTouch: false, ...sceneTuning.scroll.lenis });
     lenis.current = smooth;
     smooth?.on("scroll", update);
     window.addEventListener("scroll", update, { passive: true });
@@ -89,7 +94,16 @@ export function RoadPrototype() {
   return (
     <>
       <DustCanvas ref={scene} stats onStats={onStats} />
-      <div ref={ride} className="relative z-10" style={{ height: `${timeline.screens * 100}vh` }} />
+      <div
+        ref={ride}
+        className="relative z-10 h-(--ride) max-md:h-(--ride-phone)"
+        style={
+          {
+            "--ride": `${timeline.chapters * sceneTuning.scroll.chapter.desktop}svh`,
+            "--ride-phone": `${timeline.chapters * sceneTuning.scroll.chapter.mobile}svh`,
+          } as CSSProperties
+        }
+      />
 
       <div className="panel fixed inset-x-4 bottom-4 z-30 flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-5">
         <label htmlFor="road-progress" className="label shrink-0 text-[11px] text-muted">

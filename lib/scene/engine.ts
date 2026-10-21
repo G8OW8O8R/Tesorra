@@ -556,7 +556,7 @@ export class DustEngine {
     }
     gl.bindVertexArray(null);
 
-    this.bloomPass(hdr);
+    this.bloomPass(hdr, carDrawn);
 
     // The car joins the full-resolution scene after bloom has been taken, so no half-resolution
     // glow is laid over it.
@@ -612,7 +612,7 @@ export class DustEngine {
     gl.uniform2f(prog.u.uTexel, 1 / srcW, 1 / srcH);
   }
 
-  private bloomPass(hdr: Target) {
+  private bloomPass(hdr: Target, carGlow: boolean) {
     const gl = this.gl;
     const b = T.render.bloom;
     const { prefilter, down, up } = this.post;
@@ -621,6 +621,10 @@ export class DustEngine {
 
     this.fullscreen(prefilter, this.bloom[0], hdr.tex, hdr.width, hdr.height);
     gl.uniform4f(prefilter.u.uThreshold, b.threshold, b.knee, this.format.decode, 1 / this.format.decode);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.carTarget!.tex);
+    gl.uniform1i(prefilter.u.uCar, 1);
+    gl.uniform2f(prefilter.u.uCarBloom, T.carCeiling, carGlow ? T.carBloom : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     for (let i = 1; i < this.bloom.length; i++) {

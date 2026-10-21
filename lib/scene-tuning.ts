@@ -140,10 +140,10 @@ export const sceneTuning = {
   layers: {
     road: { colour: "chapter", size: 0.02, intensity: 0.27, whiteMix: 0.04, spark: 0.03, twinkle: 0.18, twinkleSpeed: 2.2, sharpPx: 1.6 },
     edge: { colour: "chapter", size: 0.024, intensity: 0.3, whiteMix: 0.72, spark: 0.06, twinkle: 0.3, twinkleSpeed: 3.1, sharpPx: 1.8 },
-    terrain: { colour: "ground", size: 0.03, intensity: 0.24, whiteMix: 0, spark: 0.01, twinkle: 0.3, twinkleSpeed: 1.2, sharpPx: 1.5 },
+    terrain: { colour: "ground", size: 0.03, intensity: 0.48, whiteMix: 0, spark: 0.01, twinkle: 0.3, twinkleSpeed: 1.2, sharpPx: 1.5 },
     fog: { colour: "#2b5d7a", size: 3.4, intensity: 0.007, whiteMix: 0, spark: 0, twinkle: 0, twinkleSpeed: 0, sharpPx: 400 },
     stars: { colour: "#c4d8ff", size: 0.5, intensity: 0.6, whiteMix: 0.4, spark: 0.08, twinkle: 0.45, twinkleSpeed: 1.3, sharpPx: 2 },
-    car: { colour: "chapter", size: 0.011, intensity: 0.07, whiteMix: 0.08, spark: 0.03, twinkle: 0.22, twinkleSpeed: 4.5, sharpPx: 1.6 },
+    car: { colour: "chapter", size: 0.011, intensity: 0.14, whiteMix: 0, spark: 0.03, twinkle: 0.22, twinkleSpeed: 4.5, sharpPx: 1.6 },
     smoke: { colour: "chapter", size: 0.02, intensity: 0.25, whiteMix: 0.62, spark: 0.01, twinkle: 0.1, twinkleSpeed: 1.1, sharpPx: 1.8 },
   },
 
@@ -157,8 +157,13 @@ export const sceneTuning = {
     mobile: { road: 70000, edge: 18000, terrain: 45000, fog: 900, stars: 2000, car: 27000, smoke: 15000 },
   },
 
-  /** The car's own buffer is soft-capped at this HDR value before it joins the scene. */
-  carCeiling: 1.4,
+  /**
+   * The car's own buffer is soft-capped at this HDR value before it joins the scene (hue is kept,
+   * so dense panels saturate instead of turning white). It is added after bloom at full resolution
+   * to stay crisp, and feeds the bloom separately with its own gain.
+   */
+  carCeiling: 2,
+  carBloom: 1.8,
 
   track: {
     /** Half the road width. */
@@ -229,35 +234,37 @@ export const sceneTuning = {
    */
   stops: {
     /**
-     * `back`: camera distance before the apex at mid-stop (negative = past it); `dwell`: distance
-     * it covers during the stop. Drift chases the car instead: level with it (`ahead`), on the
-     * inside of the corner (`inside`), low (`height`), aiming slightly above its centre (`aim`).
+     * `back`: camera distance before the apex at mid-stop (negative = past it). Drift chases the
+     * car instead: level with it (`ahead`), on the inside of the corner (`inside`), low (`height`),
+     * aiming just off its centre (`aim`).
      */
     drift: {
       colour: "#e3a04f",
       ground: "#3f8ea6",
-      view: { back: -6, dwell: 24, side: 0, height: 1.1, look: 1 },
-      chase: { ahead: 1.2, inside: 6.4, height: 1.9, aim: -0.1 },
+      view: { back: -6, side: 0, height: 1.1, look: 1 },
+      chase: { ahead: 1, inside: 4.9, height: 1.7, aim: -0.1 },
     },
-    formula: { colour: "#d9573f", ground: "#3f8ea6", view: { back: 14, dwell: 5, side: 2, height: 1.6, look: 0.6 } },
-    moto: { colour: "#8fb3d6", ground: "#8a6a3a", view: { back: 13, dwell: 5, side: 2.4, height: 2.2, look: 0.6 } },
-    store: { colour: "#f2e9dc", ground: "#3f8ea6", view: { back: 16, dwell: 5, side: 0, height: 3.2, look: 0.4 } },
-    live: { colour: "#e3a04f", ground: "#3f8ea6", view: { back: 18, dwell: 5, side: 0, height: 2.6, look: 0.3 } },
+    formula: { colour: "#d9573f", ground: "#3f8ea6", view: { back: 14, side: 2, height: 1.6, look: 0.6 } },
+    moto: { colour: "#8fb3d6", ground: "#8a6a3a", view: { back: 13, side: 2.4, height: 2.2, look: 0.6 } },
+    store: { colour: "#f2e9dc", ground: "#3f8ea6", view: { back: 16, side: 0, height: 3.2, look: 0.4 } },
+    live: { colour: "#e3a04f", ground: "#3f8ea6", view: { back: 18, side: 0, height: 2.6, look: 0.3 } },
   },
 
   /** How scrolling maps onto the ride. */
   scroll: {
-    /** Opening view before the ride starts moving. */
-    hero: 0.6,
-    /** Distance the camera creeps during the opening view. */
+    /** Scroll length of one chapter (ride into a stop + the stop), in svh per device. */
+    chapter: { desktop: 110, mobile: 85 },
+    /** Opening view before the ride starts moving, in chapters, and how far the camera creeps. */
+    hero: 0.25,
     heroDistance: 1.5,
-    /** Ride between stops. */
-    travel: 1.8,
-    /** Time spent at each stop (the distance covered is set per stop). */
-    dwell: 1.6,
-    /** After the last stop. */
-    tail: 0.4,
+    /** Share of a chapter spent at its stop, and the camera speed there vs. its average ride speed. */
+    stopShare: 0.12,
+    stopSpeed: 0.15,
+    /** After the last stop, in chapters. */
+    tail: 0.15,
     tailDistance: 3,
+    /** Smooth scrolling on desktop; touch always scrolls natively. */
+    lenis: { lerp: 0.1, wheelMultiplier: 1.1 },
     /** Camera blends into a stop framing over this distance either side of the dwell. */
     stopBlend: 22,
   },

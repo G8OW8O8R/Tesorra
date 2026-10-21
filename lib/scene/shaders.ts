@@ -371,17 +371,31 @@ void main() {
 }
 `;
 
-/** Soft-threshold prefilter into the first bloom level, with Karis weighting against fireflies. */
+/**
+ * Soft-threshold prefilter into the first bloom level, with Karis weighting against fireflies.
+ * The scene and the car (with its own gain) both feed it.
+ */
 export const prefilterFragment = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 vUv;
 uniform sampler2D uSrc;
+uniform sampler2D uCar;
 uniform vec2 uTexel;
 uniform vec4 uThreshold;
+uniform vec2 uCarBloom;
 out vec4 outColor;
 
+// The car buffer under the same soft ceiling as in the scene, scaled by its own bloom gain.
+vec3 car(vec2 uv) {
+  vec3 c = texture(uCar, uv).rgb * uThreshold.z;
+  float m = max(c.r, max(c.g, c.b));
+  float k = m > 1e-5 ? uCarBloom.x * (1.0 - exp(-m / uCarBloom.x)) / m : 1.0;
+  return c * k * uCarBloom.y;
+}
+
 vec3 tap(vec2 o, inout float wsum) {
-  vec3 c = texture(uSrc, vUv + o * uTexel).rgb * uThreshold.z;
+  vec2 uv = vUv + o * uTexel;
+  vec3 c = texture(uSrc, uv).rgb * uThreshold.z + car(uv);
   float w = 1.0 / (1.0 + max(c.r, max(c.g, c.b)));
   wsum += w;
   return c * w;
