@@ -14,6 +14,7 @@
     "images": "node scripts/images.mjs"
   },
   "dependencies": {
+    "lenis": "^1.3.27",
     "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",

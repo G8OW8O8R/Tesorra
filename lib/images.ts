@@ -21,6 +21,13 @@ export const images = {
     avif: [{ width: 640, height: 656, src: "/img/store/can-4pack-640.avif" }, { width: 982, height: 1006, src: "/img/store/can-4pack-982.avif" }],
     webp: [{ width: 640, height: 656, src: "/img/store/can-4pack-640.webp" }, { width: 982, height: 1006, src: "/img/store/can-4pack-982.webp" }],
   },
+  "store/can-cherry": {
+    width: 517,
+    height: 909,
+    alpha: true,
+    avif: [{ width: 517, height: 909, src: "/img/store/can-cherry-517.avif" }],
+    webp: [{ width: 517, height: 909, src: "/img/store/can-cherry-517.webp" }],
+  },
   "store/can-citrus": {
     width: 516,
     height: 909,
@@ -56,12 +63,40 @@ export const images = {
     avif: [{ width: 640, height: 615, src: "/img/store/helmet-21-640.avif" }, { width: 1057, height: 1016, src: "/img/store/helmet-21-1057.avif" }],
     webp: [{ width: 640, height: 615, src: "/img/store/helmet-21-640.webp" }, { width: 1057, height: 1016, src: "/img/store/helmet-21-1057.webp" }],
   },
+  "store/hoodie-back": {
+    width: 1689,
+    height: 1764,
+    alpha: true,
+    avif: [{ width: 640, height: 668, src: "/img/store/hoodie-back-640.avif" }, { width: 1280, height: 1337, src: "/img/store/hoodie-back-1280.avif" }, { width: 1689, height: 1764, src: "/img/store/hoodie-back-1689.avif" }],
+    webp: [{ width: 640, height: 668, src: "/img/store/hoodie-back-640.webp" }, { width: 1280, height: 1337, src: "/img/store/hoodie-back-1280.webp" }, { width: 1689, height: 1764, src: "/img/store/hoodie-back-1689.webp" }],
+  },
+  "store/hoodie-front": {
+    width: 1684,
+    height: 1747,
+    alpha: true,
+    avif: [{ width: 640, height: 664, src: "/img/store/hoodie-front-640.avif" }, { width: 1280, height: 1328, src: "/img/store/hoodie-front-1280.avif" }, { width: 1684, height: 1747, src: "/img/store/hoodie-front-1684.avif" }],
+    webp: [{ width: 640, height: 664, src: "/img/store/hoodie-front-640.webp" }, { width: 1280, height: 1328, src: "/img/store/hoodie-front-1280.webp" }, { width: 1684, height: 1747, src: "/img/store/hoodie-front-1684.webp" }],
+  },
   "store/jacket": {
     width: 1013,
     height: 1189,
     alpha: true,
     avif: [{ width: 640, height: 751, src: "/img/store/jacket-640.avif" }, { width: 1013, height: 1189, src: "/img/store/jacket-1013.avif" }],
     webp: [{ width: 640, height: 751, src: "/img/store/jacket-640.webp" }, { width: 1013, height: 1189, src: "/img/store/jacket-1013.webp" }],
+  },
+  "store/tee-back": {
+    width: 1823,
+    height: 1743,
+    alpha: true,
+    avif: [{ width: 640, height: 612, src: "/img/store/tee-back-640.avif" }, { width: 1280, height: 1224, src: "/img/store/tee-back-1280.avif" }, { width: 1823, height: 1743, src: "/img/store/tee-back-1823.avif" }],
+    webp: [{ width: 640, height: 612, src: "/img/store/tee-back-640.webp" }, { width: 1280, height: 1224, src: "/img/store/tee-back-1280.webp" }, { width: 1823, height: 1743, src: "/img/store/tee-back-1823.webp" }],
+  },
+  "store/tee-front": {
+    width: 1726,
+    height: 1521,
+    alpha: true,
+    avif: [{ width: 640, height: 564, src: "/img/store/tee-front-640.avif" }, { width: 1280, height: 1128, src: "/img/store/tee-front-1280.avif" }, { width: 1726, height: 1521, src: "/img/store/tee-front-1726.avif" }],
+    webp: [{ width: 640, height: 564, src: "/img/store/tee-front-640.webp" }, { width: 1280, height: 1128, src: "/img/store/tee-front-1280.webp" }, { width: 1726, height: 1521, src: "/img/store/tee-front-1726.webp" }],
   },
   "team/elena-face": {
     width: 2576,
@@ -90,6 +125,13 @@ export const images = {
     alpha: false,
     avif: [{ width: 640, height: 357, src: "/img/team/kuba-car-640.avif" }, { width: 1280, height: 715, src: "/img/team/kuba-car-1280.avif" }, { width: 1920, height: 1072, src: "/img/team/kuba-car-1920.avif" }, { width: 1920, height: 1072, src: "/img/team/kuba-car-1920.avif" }],
     webp: [{ width: 640, height: 357, src: "/img/team/kuba-car-640.webp" }, { width: 1280, height: 715, src: "/img/team/kuba-car-1280.webp" }, { width: 1920, height: 1072, src: "/img/team/kuba-car-1920.webp" }, { width: 1920, height: 1072, src: "/img/team/kuba-car-1920.webp" }],
+  },
+  "team/kuba-face": {
+    width: 2752,
+    height: 1536,
+    alpha: false,
+    avif: [{ width: 640, height: 357, src: "/img/team/kuba-face-640.avif" }, { width: 1280, height: 714, src: "/img/team/kuba-face-1280.avif" }, { width: 1920, height: 1072, src: "/img/team/kuba-face-1920.avif" }, { width: 1920, height: 1072, src: "/img/team/kuba-face-1920.avif" }],
+    webp: [{ width: 640, height: 357, src: "/img/team/kuba-face-640.webp" }, { width: 1280, height: 714, src: "/img/team/kuba-face-1280.webp" }, { width: 1920, height: 1072, src: "/img/team/kuba-face-1920.webp" }, { width: 1920, height: 1072, src: "/img/team/kuba-face-1920.webp" }],
   },
   "team/team-night": {
     width: 2576,
