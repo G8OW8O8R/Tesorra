@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Locale } from "@/lib/i18n";
 import type { Messages } from "@/messages";
+import { Wordmark } from "./brand/wordmark";
 import { CockpitDisplay } from "./cockpit-display";
 import { NavShortcuts } from "./nav-shortcuts";
 import { SiteMenu } from "./site-menu";
@@ -23,13 +24,12 @@ export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
         aria-label={t.label}
         className="grid h-12 w-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6"
       >
-        {/* Placeholder lettering until the drawn wordmark replaces it. */}
         <Link
           href={`/${lang}`}
           aria-label={t.home}
-          className="justify-self-start font-serif text-lg font-extrabold tracking-[0.06em] text-accent italic transition-colors duration-(--dur-base) ease-standard sm:text-xl"
+          className="justify-self-start text-accent transition-colors duration-(--dur-base) ease-standard"
         >
-          TESORRA
+          <Wordmark decorative className="w-[92px] sm:w-[112px]" />
         </Link>
 
         <CockpitDisplay t={t} />
