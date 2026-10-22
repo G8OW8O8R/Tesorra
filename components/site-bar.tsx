@@ -6,7 +6,10 @@ import { CockpitDisplay } from "./cockpit-display";
 import { NavShortcuts } from "./nav-shortcuts";
 import { SiteMenu } from "./site-menu";
 
-/** Top bar styled as a steering-wheel display: wordmark, data line with shift lights, MENU and BOX. */
+/**
+ * Top bar styled as a steering-wheel display: wordmark (18 px tall on phones), data line with shift
+ * lights, MENU and BOX.
+ */
 export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
   // Box contents arrive with the persisted cart; the count is static until then.
   const boxCount = 0;
@@ -29,7 +32,7 @@ export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
           aria-label={t.home}
           className="justify-self-start text-accent transition-colors duration-(--dur-base) ease-standard"
         >
-          <Wordmark decorative data-bar-wordmark className="w-[92px] sm:w-[112px]" />
+          <Wordmark decorative data-bar-wordmark className="w-[88px] md:w-[112px]" />
         </Link>
 
         <CockpitDisplay t={t} />

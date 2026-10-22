@@ -34,6 +34,8 @@ const en = {
     chaptersLabel: "Chapters",
     chapterNames: ["DRIFT", "FORMULA", "MOTO", "STORE", "WATCH US LIVE"],
     next: "Next",
+    nextStop: "Next stop",
+    previousStop: "Previous stop",
     footer: "Footer",
     chapters: {
       drift: {

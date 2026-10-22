@@ -102,17 +102,22 @@ export function LiveCountdown({ t }: { t: LiveText }) {
 
   return (
     <div ref={root} className="mt-2">
-      <p data-clock role="timer" className="label flex flex-wrap items-baseline gap-x-[0.55em] text-fg">
+      {/* Phones run it across the full width. */}
+      <p
+        data-clock
+        role="timer"
+        className="label flex items-baseline justify-between text-fg md:flex-wrap md:justify-start md:gap-x-[0.55em]"
+      >
         {UNITS.map((unit) => (
           <span key={unit} aria-hidden className="flex items-baseline">
-            <span data-unit={unit} className="text-[clamp(2.6rem,6.2vw,6.5rem)] leading-none tabular-nums">
+            <span data-unit={unit} className="text-[13vw] leading-none tabular-nums md:text-[clamp(2.6rem,6.2vw,6.5rem)]">
               --
             </span>
-            <span className="ml-[0.2em] text-[clamp(1rem,2vw,2rem)] text-amber">{t.units[unit]}</span>
+            <span className="ml-[0.2em] text-[4.5vw] text-amber md:text-[clamp(1rem,2vw,2rem)]">{t.units[unit]}</span>
           </span>
         ))}
       </p>
-      <p data-round className="label mt-3 text-xs text-muted normal-case sm:text-sm" />
+      <p data-round className="label mt-2 text-xs text-muted normal-case md:mt-3 md:text-sm" />
     </div>
   );
 }
@@ -146,17 +151,17 @@ export function LiveRounds({ lang, t }: { lang: Locale; t: LiveText }) {
           {rounds.map((r, i) => (
             <li
               key={r.slug}
-              className={`relative grid grid-cols-[3.4rem_4.5rem_1fr_auto] items-center gap-3 border-b border-line py-2.5 max-md:nth-[n+4]:hidden ${
+              className={`relative grid grid-cols-[3rem_1fr_auto] items-center gap-3 border-b border-line py-2 max-md:nth-[n+4]:hidden md:grid-cols-[3.4rem_4.5rem_1fr_auto] md:py-2.5 ${
                 i === 0 ? "text-fg" : "text-fg/70"
               }`}
             >
               {i === 0 ? <span aria-hidden className="absolute top-2 bottom-2 -left-3 w-px bg-accent" /> : null}
               <span className="label text-sm tabular-nums">{dayMonth(r, lang)}</span>
-              <span className={`relative aspect-[16/10] overflow-hidden bg-bg ${i === 0 ? "" : "opacity-70"}`}>
+              <span className={`relative hidden aspect-[16/10] overflow-hidden bg-bg md:block ${i === 0 ? "" : "opacity-70"}`}>
                 <Picture image={THUMB[r.discipline]} alt="" sizes="72px" className="size-full object-cover" />
               </span>
               <span className="min-w-0">
-                <span className="label block truncate text-sm">{r.city.toUpperCase()}</span>
+                <span className="label block text-sm break-words">{r.city.toUpperCase()}</span>
                 <span className="label block text-[11px]" style={{ color: `var(--chapter-${r.discipline})` }}>
                   {r.discipline.toUpperCase()}
                 </span>
@@ -173,7 +178,7 @@ export function LiveRounds({ lang, t }: { lang: Locale; t: LiveText }) {
           ))}
         </ul>
       )}
-      <p className="label mt-4 text-[11px] normal-case">
+      <p className="label mt-3 text-[11px] normal-case md:mt-4">
         <span aria-disabled="true" className="text-fg/50 underline decoration-line underline-offset-4">
           {t.watch}
         </span>

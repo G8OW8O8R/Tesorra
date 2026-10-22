@@ -128,9 +128,14 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
     const cue = home.querySelector<HTMLElement>("[data-cue]");
     const cueFull = home.querySelector<HTMLElement>("[data-cue-full]");
     const cueShort = home.querySelector<HTMLElement>("[data-cue-short]");
+    const back = home.querySelector<HTMLButtonElement>("[data-back]");
+    const ahead = home.querySelector<HTMLButtonElement>("[data-ahead]");
+    const fitted = Array.from(home.querySelectorAll<HTMLElement>("[data-fit]"));
     const masks = products.map((_, i) => document.querySelector(`#dissolve-${i} feFuncA`));
     let flight = { dx: 0, dy: 0, s: 1 };
     let viewport = { w: 1, h: 1 };
+    /** Phone composition (under 768 px): products stand in a grid, names fit beside numbers. */
+    let phone = false;
     /** Where the hero wordmark stands in the opening view (px). */
     let rest = { left: 0, top: 0, width: 1, height: 1 };
     let drawing = false;
@@ -145,6 +150,16 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
       const top = el.getBoundingClientRect().top + window.scrollY;
       span.current = { top, length: Math.max(1, el.offsetHeight - window.innerHeight) };
       viewport = { w: docEl.clientWidth, h: docEl.clientHeight };
+      phone = viewport.w < 768;
+      // Phones set each stop's name beside its number, shrunk until its longest word fits there.
+      fitted.forEach((name) => {
+        name.style.removeProperty("--fit");
+        if (!phone) return;
+        const widest = Math.max(1, ...Array.from(name.querySelectorAll<HTMLElement>("[data-word]"), (w) => w.offsetWidth));
+        if (widest > name.clientWidth) name.style.setProperty("--fit", ((name.clientWidth / widest) * 0.97).toFixed(3));
+      });
+      // The products' grid on phones lays them out itself.
+      if (phone) products.forEach((node) => Object.assign(node.style, { transform: "", zIndex: "" }));
       const big = mark.current;
       // The hero wordmark stands on the horizon of the opening view, its feet sunk a little into the
       // haze, as wide as the page allows between the bar and the horizon.
@@ -269,6 +284,8 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
           if (!node) return;
           flag(node, "data-on", i === stop);
           node.inert = i !== stop;
+          // A print opened on a phone folds away as the ride leaves its stop.
+          if (i !== stop) node.querySelector<HTMLElement>(":popover-open")?.hidePopover();
         });
       }
 
@@ -278,6 +295,8 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
         shown.next = coming;
         placeCue();
       }
+      const first = window.scrollY < 4;
+      if (back && back.disabled !== first) back.disabled = first;
 
       const accent = toHex(chapterColour(r, p));
       if (accent !== shown.accent) {
@@ -358,12 +377,14 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
           productForm[i] = 0;
           return;
         }
-        const size = data[o + 2];
-        const shift = reduced.current ? 0 : CURSOR_PARALLAX * size;
-        const x = ((data[o] + 1) / 2) * viewport.w + cursor.x * shift;
-        const y = ((1 - data[o + 1]) / 2) * viewport.h + cursor.y * shift;
-        node.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(${size})`;
-        node.style.zIndex = String(Math.round(size * 100));
+        if (!phone) {
+          const size = data[o + 2];
+          const shift = reduced.current ? 0 : CURSOR_PARALLAX * size;
+          const x = ((data[o] + 1) / 2) * viewport.w + cursor.x * shift;
+          const y = ((1 - data[o + 1]) / 2) * viewport.h + cursor.y * shift;
+          node.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%) scale(${size})`;
+          node.style.zIndex = String(Math.round(size * 100));
+        }
         if (productForm[i] === form) return;
         if (productForm[i] <= 0) node.style.visibility = "visible";
         productForm[i] = form;
@@ -459,7 +480,13 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
     const onStripBlur = (e: FocusEvent) => {
       if (!strip?.contains(e.relatedTarget as Node | null)) onStripLeave();
     };
+    const onBack = () => {
+      if (!nav.riding) go(-1);
+    };
     cue?.addEventListener("click", onCue);
+    ahead?.addEventListener("click", onCue);
+    cueShort?.addEventListener("click", onCue);
+    back?.addEventListener("click", onBack);
     strip?.addEventListener("pointerover", onStripOver);
     strip?.addEventListener("pointerleave", onStripLeave);
     strip?.addEventListener("focusin", onStripOver);
@@ -578,6 +605,11 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
     };
     window.addEventListener("resize", onResize);
     measure();
+    // Names are fitted with the headline face, which may still be on its way.
+    let mounted = true;
+    document.fonts?.ready.then(() => {
+      if (mounted) onResize();
+    });
     // Arriving with a stop in the address (/#moto) starts the ride at that stop.
     const arrival = IDS.indexOf(location.hash.slice(1) as (typeof IDS)[number]);
     if (arrival >= 0) {
@@ -589,9 +621,13 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
     raf = requestAnimationFrame(tick);
 
     return () => {
+      mounted = false;
       cancelAnimationFrame(raf);
       releaseRide();
       cue?.removeEventListener("click", onCue);
+      ahead?.removeEventListener("click", onCue);
+      cueShort?.removeEventListener("click", onCue);
+      back?.removeEventListener("click", onBack);
       strip?.removeEventListener("pointerover", onStripOver);
       strip?.removeEventListener("pointerleave", onStripLeave);
       strip?.removeEventListener("focusin", onStripOver);
@@ -634,6 +670,12 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
             className="absolute inset-0 size-full object-cover opacity-40"
           />
         }
+      />
+
+      {/* Phones: the scene is the upper part of the screen; under it the dust fades out behind the text. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-[52svh] bottom-0 z-[5] bg-linear-to-b from-bg/0 via-bg/80 via-45% to-bg/95 md:hidden"
       />
 
       {/*
@@ -754,12 +796,39 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
       {/*
         Progress along the bottom, one segment per stop: thin to look at, 24 px to hit; a click rides
         there. Over it one cue names the next stop (or the hovered segment, or the footer from 05 on).
+        Phones have the progress under the bar; here they get the cue between back and on arrows.
       */}
       <nav
         aria-label={t.chaptersLabel}
-        className="hero-enter fixed inset-x-0 bottom-0 z-30 flex h-(--dock-h) flex-col justify-end px-(--gutter) pb-[env(safe-area-inset-bottom)] transition-opacity duration-(--dur-base) ease-standard group-data-past/home:pointer-events-none group-data-past/home:opacity-0"
+        className="hero-enter fixed inset-x-0 bottom-0 z-30 flex h-(--dock-h) flex-col justify-center px-(--gutter) pb-[env(safe-area-inset-bottom)] transition-opacity duration-(--dur-base) ease-standard group-data-past/home:pointer-events-none group-data-past/home:opacity-0 md:justify-end"
       >
-        <div data-strip className="relative flex gap-1">
+        <div className="-mx-3 flex items-center justify-between md:hidden">
+          <button
+            type="button"
+            data-back
+            disabled
+            aria-label={t.previousStop}
+            className="label size-11 text-base text-fg transition-colors duration-(--dur-fast) ease-standard hover:text-accent disabled:text-fg/25"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            data-cue-short
+            className="label h-11 px-2 text-[11px] whitespace-nowrap text-fg underline decoration-line underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current"
+          >
+            {`${t.next} · ${chapters[0].number} →`}
+          </button>
+          <button
+            type="button"
+            data-ahead
+            aria-label={t.nextStop}
+            className="label size-11 text-base text-fg transition-colors duration-(--dur-fast) ease-standard hover:text-accent"
+          >
+            →
+          </button>
+        </div>
+        <div data-strip className="relative flex gap-1 max-md:hidden">
           <div
             data-cue
             data-next={t.next}
@@ -771,12 +840,8 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
               type="button"
               className="label pointer-events-auto text-[11px] whitespace-nowrap text-fg underline decoration-line underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current"
             >
-              <span data-cue-full className="max-md:hidden">
-                {`${t.next} · ${chapters[0].number} ${chapters[0].name} →`}
-              </span>
-              <span data-cue-short className="md:hidden">
-                {`${t.next} · ${chapters[0].number} →`}
-              </span>
+              <span data-cue-full>{`${t.next} · ${chapters[0].number} ${chapters[0].name} →`}</span>
+
             </button>
           </div>
           {chapters.map((c, i) => (

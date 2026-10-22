@@ -9,7 +9,6 @@ import {
   fieldOfView,
   formulaAt,
   getRide,
-  lensShift,
   motoAt,
   nearLive,
   portraitOf,
@@ -953,11 +952,12 @@ export class DustEngine {
 
     // Camera matrices.
     const kick = Math.min(this.speed * cam.fovKick, cam.maxFovKick);
-    const fovY = fieldOfView(this.ride, aspect, kick);
+    const fovY = fieldOfView(this.ride, aspect, kick, view.minFov);
     perspective(this.proj, fovY, aspect, cam.near, cam.far);
-    // Portrait screens lift the picture (a lens shift): at stops clear of the panel along the
-    // bottom, in the opening view to stand the wordmark higher.
-    this.proj[9] = -lensShift(this.ride, view, portrait);
+    // Portrait screens shift the picture (a lens shift): at stops into the scene above the text,
+    // in the opening view to stand the wordmark higher.
+    this.proj[8] = -view.lens[0];
+    this.proj[9] = -view.lens[1];
     lookAt(this.view, view.eye, view.target, this.roll);
     multiply(this.viewProj, this.proj, this.view);
     invert(this.inverse, this.viewProj);

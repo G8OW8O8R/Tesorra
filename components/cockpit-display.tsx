@@ -7,13 +7,13 @@ import { getDashboard, HOME_CHAPTERS, rideToStop, subscribeDashboard } from "@/l
 import { writeDigits } from "@/lib/flip-digits";
 import type { Messages } from "@/messages";
 
-/** Progress is quantised to 1/24 so both the 6+6 and the 4+4 rows land on whole lights. */
-const STEPS = 24;
+/** The lights show progress in 1/12 steps, a whole light each. */
+const STEPS = 12;
 
 function getProgress() {
   const max = document.documentElement.scrollHeight - window.innerHeight;
   if (max <= 0) return 0;
-  return Math.round(Math.min(1, Math.max(0, window.scrollY / max)) * STEPS) / STEPS;
+  return Math.min(1, Math.max(0, window.scrollY / max));
 }
 
 /** Two quick flashes of the shift lights on a chapter change. */
@@ -31,7 +31,7 @@ function shiftLights({ perSide, className }: { perSide: number; className: strin
     const mix = Math.round((index / (total - 1)) * 100);
     const colour = `color-mix(in oklab, var(--accent) ${mix}%, color-mix(in oklab, var(--amber) 55%, var(--bg)))`;
     return (
-      <span key={index} className="relative size-1.5 rounded-full bg-fg/10 sm:size-[7px]">
+      <span key={index} className="relative size-[7px] rounded-full bg-fg/10">
         <span
           data-light={index}
           data-total={total}
@@ -43,7 +43,7 @@ function shiftLights({ perSide, className }: { perSide: number; className: strin
   };
 
   const side = (from: number) => (
-    <span data-lights className="flex items-center gap-1.5 sm:gap-2">
+    <span data-lights className="flex items-center gap-2">
       {Array.from({ length: perSide }, (_, i) => light(from + i))}
     </span>
   );
@@ -58,6 +58,8 @@ function shiftLights({ perSide, className }: { perSide: number; className: strin
  * The steering-wheel display. Speed, gear, chapter and lights are written straight into the DOM
  * from the dashboard and the scroll position, so the ride never re-renders the bar. On the home
  * page the chapter is a button: it opens the list of stops under the bar, and a stop rides there.
+ * Phones show the data short (01 · 142 · 4) and, in place of the lights, a 2 px progress line in
+ * the chapter colour along the bar's lower edge.
  */
 export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
   const pathname = usePathname() ?? "/";
@@ -74,6 +76,7 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
     const el = root.current;
     if (!el) return;
     const lights = Array.from(el.querySelectorAll<HTMLElement>("[data-light]"));
+    const line = el.querySelector<HTMLElement>("[data-progress]");
     const rows = Array.from(el.querySelectorAll<HTMLElement>("[data-lights]"));
     const field = (name: string) => el.querySelector<HTMLElement>(`[data-field="${name}"]`);
     const speed = field("speed");
@@ -85,10 +88,17 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
     };
 
     let lit = -1;
+    let drawn = -1;
     let frame = 0;
     const paint = () => {
       frame = 0;
-      const progress = getProgress();
+      const exact = getProgress();
+      const share = Math.round(exact * 1000) / 1000;
+      if (line && share !== drawn) {
+        drawn = share;
+        line.style.transform = `scaleX(${share})`;
+      }
+      const progress = Math.round(exact * STEPS) / STEPS;
       if (progress === lit) return;
       lit = progress;
       for (const light of lights) {
@@ -143,13 +153,14 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
     };
   }, [open]);
 
-  const wide = shiftLights({ perSide: 6, className: "hidden sm:flex" });
-  const narrow = shiftLights({ perSide: 4, className: "flex sm:hidden" });
+  const lights = shiftLights({ perSide: 6, className: "hidden md:flex" });
 
   return (
-    <div ref={root} role="group" aria-label={t.display} className="flex items-center gap-3 sm:gap-5">
-      {wide.left}
-      {narrow.left}
+    <div ref={root} role="group" aria-label={t.display} className="flex items-center gap-3 md:gap-5">
+      <span aria-hidden className="absolute inset-x-0 -bottom-px h-0.5 md:hidden">
+        <span data-progress className="absolute inset-0 origin-left scale-x-0 bg-accent transition-colors duration-(--dur-base) ease-standard" />
+      </span>
+      {lights.left}
       <div className="label flex items-center gap-2 text-[11px] whitespace-nowrap text-fg">
         {page ? (
           <span>{page}</span>
@@ -165,7 +176,7 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
               className="label -mx-1.5 px-1.5 py-1 underline decoration-transparent underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current aria-expanded:text-accent"
             >
               <span data-field="number">01</span>
-              <span data-field="chapter" className="hidden sm:inline">
+              <span data-field="chapter" className="hidden md:inline">
                 {` ${t.chapters[0]}`}
               </span>
             </button>
@@ -203,15 +214,14 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
           <span data-field="speed" className="inline-block min-w-[3ch] text-right">
             0
           </span>
-          <span className="hidden text-muted sm:inline"> {t.speedUnit}</span>
+          <span className="hidden text-muted md:inline"> {t.speedUnit}</span>
         </span>
         <span aria-hidden className="text-muted">·</span>
         <span data-field="gear" className="inline-block min-w-[1ch]">
           {t.neutral}
         </span>
       </div>
-      {narrow.right}
-      {wide.right}
+      {lights.right}
     </div>
   );
 }

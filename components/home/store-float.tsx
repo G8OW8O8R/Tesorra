@@ -32,11 +32,15 @@ export function dissolveIntercept(form: number) {
 /**
  * The floating products. The page moves each `[data-product]` from the scene's frame data
  * (position, size, form) and drives its dissolve mask: noise thresholded by the form, so a product
- * comes out of the dust and goes back into it grain by grain.
+ * comes out of the dust and goes back into it grain by grain. Phones stand them in two columns over
+ * the scene instead (the page leaves them in place), named and priced, drifting a little.
  */
 export function StoreFloat({ lang, t }: { lang: Locale; t: Messages["home"]["products"] }) {
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-10 overflow-hidden">
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 z-10 overflow-hidden max-md:bottom-auto max-md:grid max-md:h-[calc(60svh-var(--bar-h)-0.75rem)] max-md:grid-cols-[repeat(2,42vw)] max-md:grid-rows-3 max-md:justify-center max-md:gap-x-[4vw] max-md:pt-3 max-md:[top:var(--bar-h)]"
+    >
       <svg width="0" height="0" className="absolute">
         {FLOATING_PRODUCTS.map((p, i) => (
           <filter key={p.slug} id={`dissolve-${i}`} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">
@@ -54,15 +58,21 @@ export function StoreFloat({ lang, t }: { lang: Locale; t: Messages["home"]["pro
           href={`/${lang}/store/${p.slug}`}
           tabIndex={-1}
           data-product={i}
-          className="group pointer-events-auto absolute top-0 left-0 block w-[calc(var(--w)*1vw)] will-change-transform max-md:w-[calc(var(--w)*1.8vw)]"
-          style={{ "--w": p.width, visibility: "hidden" } as CSSProperties}
+          className="group pointer-events-auto absolute top-0 left-0 block w-[calc(var(--w)*1vw)] will-change-transform max-md:static max-md:flex max-md:min-h-0 max-md:w-full max-md:flex-col max-md:items-center max-md:justify-end max-md:will-change-auto"
+          style={{ "--w": p.width, "--i": i, visibility: "hidden" } as CSSProperties}
         >
-          <span className="block transition-[scale] duration-(--dur-base) ease-out group-hover:scale-[1.06]">
-            <Picture image={p.image} alt="" sizes={`${p.width * 2}vw`} className="h-auto w-full" data-preload />
+          <span className="product-drift block transition-[scale] duration-(--dur-base) ease-out group-hover:scale-[1.06] max-md:relative max-md:min-h-0 max-md:w-full max-md:flex-1">
+            <Picture
+              image={p.image}
+              alt=""
+              sizes={`(max-width: 767px) 42vw, ${p.width * 2}vw`}
+              className="h-auto w-full max-md:absolute max-md:inset-0 max-md:size-full max-md:object-contain max-md:object-bottom"
+              data-preload
+            />
           </span>
-          <span className="absolute top-full left-1/2 mt-1 -translate-x-1/2 text-center whitespace-nowrap text-fg opacity-0 transition-opacity duration-(--dur-fast) ease-standard group-hover:opacity-100">
-            <span className="headline block text-base leading-tight">{t[p.slug].name}</span>
-            <span className="label block text-[11px]">{formatPrice(p.priceCents, lang)}</span>
+          <span className="absolute top-full left-1/2 mt-1 -translate-x-1/2 text-center whitespace-nowrap text-fg opacity-0 transition-opacity duration-(--dur-fast) ease-standard group-hover:opacity-100 max-md:static max-md:mt-1 max-md:w-full max-md:whitespace-normal max-md:translate-x-0 max-md:opacity-100">
+            <span className="headline block text-base leading-tight max-md:text-[11px]">{t[p.slug].name}</span>
+            <span className="label block text-[11px] max-md:text-[10px]">{formatPrice(p.priceCents, lang)}</span>
           </span>
         </Link>
       ))}

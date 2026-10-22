@@ -35,6 +35,8 @@ const pl: Messages = {
     chaptersLabel: "Rozdziały",
     chapterNames: ["DRIFT", "FORMULA", "MOTO", "SKLEP", "OGLĄDAJ NA ŻYWO"],
     next: "Dalej",
+    nextStop: "Następny przystanek",
+    previousStop: "Poprzedni przystanek",
     footer: "Stopka",
     chapters: {
       drift: {

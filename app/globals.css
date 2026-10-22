@@ -227,6 +227,62 @@
   }
 }
 
+/*
+ * Phones: the print folded beside a stop's data line opens over the scene, 60% of the width, and
+ * folds away on a tap anywhere.
+ */
+.print-pop {
+  inset: calc(var(--bar-h) + 6svh) auto auto 50%;
+  width: 60vw;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+  opacity: 0;
+  translate: -50% var(--travel);
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-brake),
+    display var(--dur-base) allow-discrete,
+    overlay var(--dur-base) allow-discrete;
+}
+
+.print-pop:popover-open {
+  opacity: 1;
+  translate: -50% 0;
+}
+
+@starting-style {
+  .print-pop:popover-open {
+    opacity: 0;
+    translate: -50% var(--travel);
+  }
+}
+
+.print-pop::backdrop {
+  background: rgb(11 13 20 / 0.5);
+}
+
+/* Phones: the store's products stand in two columns over the scene, each drifting a little. */
+@media (max-width: 47.99rem) {
+  .product-drift {
+    animation: product-drift 5.2s ease-in-out infinite alternate;
+    animation-delay: calc(var(--i, 0) * -0.9s);
+  }
+}
+
+@keyframes product-drift {
+  from {
+    translate: 0 3px;
+    rotate: -1.2deg;
+  }
+  to {
+    translate: 0 -5px;
+    rotate: 1.2deg;
+  }
+}
+
 /* The bar's wordmark waits while the hero wordmark is still flying into place. */
 body:has([data-hero-mark]:not([data-docked])) [data-bar-wordmark] {
   opacity: 0;
@@ -329,7 +385,7 @@ html[data-intro="skip"] .home {
 }
 
 .hero-mark {
-  top: max(3.75rem, calc(33svh - 0.1922 * (100vw - 2rem)));
+  top: max(3.75rem, calc(27.5svh - 0.1922 * (100vw - 2rem)));
 }
 
 @media (min-width: 640px) {

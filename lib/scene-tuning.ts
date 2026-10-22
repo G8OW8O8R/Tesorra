@@ -110,13 +110,21 @@ export const sceneTuning = {
     maxFovKick: 9,
     /** Speed (world units per second) treated as "flat out" for streaks and FOV. */
     topSpeed: 160,
-    /**
-     * Portrait screens at a stop: the camera backs away from what it frames by this factor so the
-     * whole vehicle fits, and the picture shifts up by this share of the half-height (NDC), clear
-     * of the panel along the bottom.
-     */
-    portraitPull: 1.55,
-    portraitShift: 0.34,
+  },
+
+  /**
+   * Phones held upright frame each stop on their own: the scene is the upper ~60% of the screen
+   * (the text stands under it), with the vehicle centred in it about 85% of the screen wide, the
+   * track and horizon still showing. Per stop: `pull` backs the camera away from its aim by this
+   * factor, `fov` is the narrowest horizontal field of view (degrees), `shift` moves the picture
+   * (NDC share of the half-width and half-height; + = right, up).
+   */
+  portrait: {
+    drift: { pull: 1, fov: 53, shift: [0.25, 0.44] },
+    formula: { pull: 1, fov: 53, shift: [-0.31, 0.37] },
+    moto: { pull: 1, fov: 53, shift: [-0.14, 0.34] },
+    store: { pull: 1, fov: 64, shift: [0, 0.34] },
+    live: { pull: 1, fov: 64, shift: [0.41, 0.48] },
   },
 
   /**
@@ -124,7 +132,9 @@ export const sceneTuning = {
    * wordmark and the car's roof and smoke reach up into its letters. Eye height, lateral offset
    * (portrait screens move it right so the car stands under the wordmark), look-at height, and the
    * camera metres past the opening view over which it eases into the ride's own camera.
-   * `portraitShift` lifts the picture on portrait screens (NDC share of the half-height).
+   * On portrait screens `portraitShift` lifts the picture (NDC share of the half-height) and
+   * `portraitFov` (narrowest horizontal field of view, degrees) sets the car large under the
+   * full-width wordmark, its bottom still in the upper ~60% of the screen.
    */
   hero: {
     height: 1.2,
@@ -132,7 +142,8 @@ export const sceneTuning = {
     portraitLateral: 0.5,
     targetHeight: 0,
     blend: 14,
-    portraitShift: 0.28,
+    portraitShift: 0.36,
+    portraitFov: 47,
   },
 
   /**
