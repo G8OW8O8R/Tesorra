@@ -19,7 +19,7 @@ export function SiteFooter({ lang, t }: { lang: Locale; t: Messages["footer"] })
       <div className="flex w-full flex-col gap-10 px-4 py-10 sm:px-6">
         <div className="flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
           <nav aria-label={t.label}>
-            <ul className="flex flex-wrap gap-x-8 gap-y-2 font-serif text-3xl text-fg sm:text-4xl">
+            <ul className="flex flex-wrap gap-x-8 gap-y-2 headline text-3xl text-fg sm:text-4xl">
               {sections.map((s) => (
                 <li key={s.href}>
                   <Link href={s.href} className="transition-colors duration-(--dur-fast) ease-standard hover:text-accent">

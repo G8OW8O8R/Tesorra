@@ -19,7 +19,7 @@ export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-md">
+    <header data-site-bar className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-md">
       <nav
         aria-label={t.label}
         className="grid h-12 w-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6"

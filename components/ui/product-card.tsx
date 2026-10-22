@@ -41,7 +41,7 @@ export function ProductCard({ href, name, category, price, board, image, sizes =
       <div className="flex items-end justify-between gap-4 border-t border-line px-5 pt-4 pb-5">
         <div className="min-w-0">
           <p className="label text-[10px] text-muted">{category}</p>
-          <h3 className="mt-1 truncate font-serif text-xl leading-tight">
+          <h3 className="headline mt-1 truncate text-xl leading-tight">
             <Link href={href} className="outline-none after:absolute after:inset-0">
               {name}
             </Link>

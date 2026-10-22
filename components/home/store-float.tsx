@@ -60,8 +60,9 @@ export function StoreFloat({ lang, t }: { lang: Locale; t: Messages["home"]["pro
           <span className="block transition-[scale] duration-(--dur-base) ease-out group-hover:scale-[1.06]">
             <Picture image={p.image} alt="" sizes={`${p.width * 2}vw`} className="h-auto w-full" data-preload />
           </span>
-          <span className="label absolute top-full left-1/2 mt-1 -translate-x-1/2 text-center text-[11px] whitespace-nowrap text-fg opacity-0 transition-opacity duration-(--dur-fast) ease-standard group-hover:opacity-100">
-            {t[p.slug].name} · {formatPrice(p.priceCents, lang)}
+          <span className="absolute top-full left-1/2 mt-1 -translate-x-1/2 text-center whitespace-nowrap text-fg opacity-0 transition-opacity duration-(--dur-fast) ease-standard group-hover:opacity-100">
+            <span className="headline block text-base leading-tight">{t[p.slug].name}</span>
+            <span className="label block text-[11px]">{formatPrice(p.priceCents, lang)}</span>
           </span>
         </Link>
       ))}

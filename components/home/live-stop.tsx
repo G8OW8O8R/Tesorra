@@ -11,6 +11,7 @@ import {
   type Discipline,
   type Round,
 } from "@/content/season";
+import { writeDigits } from "@/lib/flip-digits";
 import { buildIcs, downloadIcs } from "@/lib/ics";
 import type { Locale } from "@/lib/i18n";
 import type { ImageKey } from "@/lib/images";
@@ -57,7 +58,7 @@ const two = (n: number) => String(n).padStart(2, "0");
 
 /**
  * Countdown to the next start, D H M S, and the round it counts to. It ticks every second by
- * writing straight into its own text nodes, so React never re-renders it.
+ * writing straight into its own nodes (each digit flips as it changes), so React never re-renders it.
  */
 export function LiveCountdown({ t }: { t: LiveText }) {
   const root = useRef<HTMLDivElement>(null);
@@ -77,12 +78,12 @@ export function LiveCountdown({ t }: { t: LiveText }) {
       const next = upcomingRounds(new Date(now), 1)[0];
       if (!next) {
         write(line, t.over);
-        cells.forEach((cell) => write(cell, "00"));
+        cells.forEach((cell) => writeDigits(cell, "00"));
         return;
       }
       const left = Math.max(0, Math.floor((roundStart(next).getTime() - now) / 1000));
       const values = [Math.floor(left / 86400), Math.floor((left % 86400) / 3600), Math.floor((left % 3600) / 60), left % 60];
-      values.forEach((v, i) => write(cells[i], two(v)));
+      values.forEach((v, i) => writeDigits(cells[i], two(v)));
       write(line, fill(t.round, { round: next.round, discipline: t.disciplines[next.discipline], city: next.city }));
       // Screen readers get the minutes, not a change every second.
       clock?.setAttribute(

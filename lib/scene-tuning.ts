@@ -24,10 +24,15 @@ export const sceneTuning = {
     dpr: { desktop: 2, mobile: 1 },
     /** Multiplies the HDR buffer before tone mapping. */
     exposure: 0.9,
-    /** Film grain after tone mapping, as a share of full white (also hides banding). */
-    grain: 0.03,
+    /** Film grain after tone mapping, as a share of full white, in the dark tones only (hides banding). */
+    grain: 0.008,
     /** Darkening towards the corners, 0 = none. */
-    vignette: 0.4,
+    vignette: 0.25,
+    /**
+     * Afterglow: share of last frame's dust kept (max blend) at a stop, and at top camera speed.
+     * The bodies are not part of it.
+     */
+    trail: { still: 0.2, fast: 0.5 },
     bloom: {
       /** HDR value where bloom starts. */
       threshold: 1,
@@ -45,10 +50,21 @@ export const sceneTuning = {
     /**
      * Adaptive density (desktop): the dense layers and the bodies start thinned so a busy stop
      * draws about `budget` points. After a warm-up, frame rate is measured in short windows:
-     * `steady` windows in a row at the target raise the density by `raise` (up to all of it), a
-     * window short of it lowers it and stops the climb. Phones draw their own smaller counts.
+     * `steady` windows in a row at the target raise the density by `raise` (up to `ceiling` points
+     * at a busy stop), a window short of it lowers it and stops the climb. Phones draw their own
+     * smaller counts.
      */
-    adaptive: { target: 60, budget: 800000, warmup: 300, window: 450, windows: 14, steady: 2, raise: 1.12, min: 0.2 },
+    adaptive: {
+      target: 60,
+      budget: 700000,
+      ceiling: 700000,
+      warmup: 300,
+      window: 450,
+      windows: 14,
+      steady: 2,
+      raise: 1.12,
+      min: 0.2,
+    },
   },
 
   /**
@@ -103,6 +119,43 @@ export const sceneTuning = {
     portraitShift: 0.34,
   },
 
+  /**
+   * The opening view: lower than the ride and closer to level, so the horizon sits under the
+   * wordmark and the car's roof and smoke reach up into its letters. Eye height, lateral offset
+   * (portrait screens move it right so the car stands under the wordmark), look-at height, and the
+   * camera metres past the opening view over which it eases into the ride's own camera.
+   * `portraitShift` lifts the picture on portrait screens (NDC share of the half-height).
+   */
+  hero: {
+    height: 1.2,
+    lateral: -0.9,
+    portraitLateral: 0.5,
+    targetHeight: 0,
+    blend: 14,
+    portraitShift: 0.28,
+  },
+
+  /**
+   * The TESORRA wordmark drawn into the scene at the opening view, under the dust, so the car and
+   * its smoke cover it. `sink`: share of its height below the horizon; `fog`: lower share of the
+   * letters that fades into the horizon haze. `cover`: how the dust hides it — gain of the car's
+   * own buffer, gain of the rest of the scene and the HDR level the scene starts covering at (the
+   * horizon glow stays under it). `handoff`: share of the fly into the bar after which the page's
+   * own SVG takes over (the bar sits over the canvas).
+   * Assembly from dust after the intro: seconds per letter, delay between letters, grain size
+   * (px), how far grains start (share of the wordmark width) and how much hotter they burn while
+   * flying in.
+   */
+  mark: {
+    sink: 0.06,
+    fog: 0.25,
+    cover: [3, 1.6, 0.45],
+    handoff: 0.3,
+    assemble: { letter: 0.8, stagger: 0.09, grainPx: 2, scatter: 0.06, heat: 1.4 },
+    /** The car must be in this soon after the intro ends (ms) for the letters to assemble at all. */
+    grace: 150,
+  },
+
   /** Depth of field: circle of confusion = viewport height × aperture × |depth − focus| / depth. */
   dof: {
     nearAperture: 0.011,
@@ -118,6 +171,14 @@ export const sceneTuning = {
   splat: {
     /** Particles smaller than this are drawn at this size and dimmed instead (px). */
     minPx: 0.75,
+    /**
+     * A sharp grain: a flat core with a one-pixel antialiased rim, `core` of its radius across (at
+     * least `coreMinPx`), carrying `coreShare` of its energy; a soft halo out to the quad's edge
+     * carries the rest.
+     */
+    core: 0.5,
+    coreMinPx: 0.6,
+    coreShare: 0.8,
     /** Largest bokeh disc radius (px); sharp particles are capped per layer by `sharpPx`. */
     maxPx: 60,
     /** How fast sub-pixel particles dim: 1 = linear with radius, 2 = by area. */
@@ -132,9 +193,9 @@ export const sceneTuning = {
   /** Motion streaks: splats stretch along their on-screen motion since the last frame. */
   streak: {
     /** Streak length per pixel of motion. */
-    gain: 1.15,
+    gain: 0.6,
     /** Longest streak (px). */
-    maxPx: 160,
+    maxPx: 80,
     /** 1 = streak trails fully behind the particle, 0.5 = centred on it. */
     trail: 0.85,
   },
@@ -160,9 +221,9 @@ export const sceneTuning = {
    * from overlap: each grain is faint and small.
    */
   layers: {
-    road: { colour: "chapter", size: 0.02, intensity: 0.27, whiteMix: 0.04, spark: 0.03, twinkle: 0.18, twinkleSpeed: 2.2, sharpPx: 1.6 },
-    edge: { colour: "chapter", size: 0.024, intensity: 0.3, whiteMix: 0.72, spark: 0.06, twinkle: 0.3, twinkleSpeed: 3.1, sharpPx: 1.8 },
-    terrain: { colour: "ground", size: 0.03, intensity: 0.48, whiteMix: 0, spark: 0.01, twinkle: 0.3, twinkleSpeed: 1.2, sharpPx: 1.5 },
+    road: { colour: "chapter", size: 0.02, intensity: 0.45, whiteMix: 0.04, spark: 0.03, twinkle: 0.18, twinkleSpeed: 2.2, sharpPx: 1.6 },
+    edge: { colour: "chapter", size: 0.024, intensity: 0.21, whiteMix: 0.72, spark: 0.06, twinkle: 0.3, twinkleSpeed: 3.1, sharpPx: 1.8 },
+    terrain: { colour: "ground", size: 0.03, intensity: 0.8, whiteMix: 0, spark: 0.01, twinkle: 0.3, twinkleSpeed: 1.2, sharpPx: 1.5 },
     fog: { colour: "#2b5d7a", size: 3.4, intensity: 0.007, whiteMix: 0, spark: 0, twinkle: 0, twinkleSpeed: 0, sharpPx: 400 },
     stars: { colour: "#c4d8ff", size: 0.5, intensity: 0.6, whiteMix: 0.4, spark: 0.08, twinkle: 0.45, twinkleSpeed: 1.3, sharpPx: 2 },
     car: { colour: "chapter", size: 0.011, intensity: 0.084, whiteMix: 0, spark: 0.03, twinkle: 0.22, twinkleSpeed: 4.5, sharpPx: 1.6 },
@@ -174,33 +235,36 @@ export const sceneTuning = {
   },
 
   /**
-   * Particle counts per device class: desktop ≈ 1.2M at most (thinned to the adaptive budget),
-   * phone ≤ 120k drawn points at any stop.
+   * Particle counts per device class: desktop ≈ 1.1M at most (thinned to the adaptive budget, about
+   * 700k at a busy stop), phone ≤ 120k drawn points at any stop. Road and terrain are sparse and
+   * brighter per grain; the edges and the bodies get the points.
    * `car` counts model points (all 120k plus extra points on edges and creases); each is
    * drawn `car.copies` times, so the car alone is `car × copies` points.
    */
   counts: {
     desktop: {
-      road: 260000,
-      edge: 70000,
-      terrain: 200000,
+      road: 156000,
+      edge: 100000,
+      terrain: 120000,
       fog: 2400,
       stars: 6000,
       car: 150000,
       smoke: 100000,
+      burnout: 80000,
       wake: 40000,
       sparks: 20000,
       grid: 14000,
       lamp: 7000,
     },
     mobile: {
-      road: 34000,
-      edge: 9000,
-      terrain: 22000,
+      road: 20400,
+      edge: 12800,
+      terrain: 13200,
       fog: 600,
       stars: 1500,
       car: 10000,
       smoke: 9000,
+      burnout: 8000,
       wake: 4000,
       sparks: 3000,
       grid: 3000,
@@ -351,6 +415,8 @@ export const sceneTuning = {
     tailDistance: 3,
     /** Smooth scrolling on desktop; touch always scrolls natively. */
     lenis: { lerp: 0.1, wheelMultiplier: 1.1 },
+    /** The camera follows the scroll target with this time constant (s), on the scene's own clock. */
+    follow: 0.15,
     /** Camera blends into a stop framing over this distance either side of the dwell. */
     stopBlend: 22,
   },
@@ -364,9 +430,15 @@ export const sceneTuning = {
      * Parked in the opening view: distance ahead of the start, lateral offset (+ = right)
      * and nose angle off the track direction (+ = towards the left, showing the right flank).
      */
-    heroDistance: 11,
-    heroLateral: 3.1,
-    heroYaw: 26,
+    heroDistance: 5.8,
+    heroLateral: 0.1,
+    heroYaw: 35,
+    /**
+     * Entrance after the wordmark has assembled: `delay` (s after the intro) and `time` (s) of a
+     * slide in from the right that brakes into the opening pose; it starts this far off the pose:
+     * [m along the track, m lateral, degrees of extra slip].
+     */
+    drive: { delay: 0.75, time: 1.6, from: [-2.5, 9, 32] },
     /** Where the slide starts and ends relative to the apex. */
     entry: 6,
     exit: 18,
@@ -385,8 +457,8 @@ export const sceneTuning = {
     /** Rear axle position along the body (model units) and wheel contact height. */
     rearAxle: -0.62,
     wheelLift: 0.1,
-    /** Assembly from dust when the scene starts (s) and how scattered the dust is. */
-    intro: 2.4,
+    /** Assembly from dust as the entrance starts (s) and how scattered the dust is. */
+    intro: 0.7,
     formSpread: 2.2,
     formLift: 1.1,
     formSwirl: 0.55,
@@ -463,6 +535,29 @@ export const sceneTuning = {
     cameraFade: [2, 5],
     /** Samples of the slide path used as emitters. */
     samples: 64,
+  },
+
+  /**
+   * Smoke from the rear wheels in the opening view, on a clock rather than the scroll: each grain
+   * lives `cycle` seconds and is born again at the wheels. It starts with the car's entrance (and
+   * trails it in), stops when the ride sets off and the last puffs drift on. `grow` and the fades
+   * are shares of a grain's life; `wind` carries it across to the right and away from the lens
+   * (shares of the track's side and direction) instead of back along the body, `kick` metres per
+   * car scale; the rest reads as for `smoke`.
+   */
+  burnout: {
+    emit: [0, 1],
+    cycle: 3.4,
+    grow: 0.3,
+    life: 1,
+    spread: [0.35, 2.1],
+    rise: 0.8,
+    kick: 1.3,
+    wind: [1, 0.35],
+    swirl: [0.8, 0.55, 0.22],
+    size: [0.7, 2.2],
+    cameraFade: [0.8, 2.2],
+    samples: 32,
   },
 
   /**

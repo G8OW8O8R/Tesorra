@@ -42,7 +42,7 @@ export default async function Kit({ params }: PageProps<"/[lang]/dev/kit">) {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 pt-16 pb-24 sm:px-8">
-      <h1 className="mb-12 font-serif text-5xl tracking-tight sm:text-7xl">Parts bin</h1>
+      <h1 className="headline mb-12 text-5xl sm:text-7xl">Parts bin</h1>
 
       <Section title="Buttons">
         <div className="flex flex-wrap items-center gap-3">
@@ -138,13 +138,13 @@ export default async function Kit({ params }: PageProps<"/[lang]/dev/kit">) {
         <div className="grid gap-4 sm:grid-cols-3">
           <PitBoard title="P1" meta="+0.000">
             <div className="px-5 py-5">
-              <p className="font-serif text-2xl">Elena Moreau</p>
+              <p className="headline text-2xl">Elena Moreau</p>
               <p className="label mt-2 text-[11px] text-muted">#08 · Fastest lap 1:31.442</p>
             </div>
           </PitBoard>
           <PitBoard title="#21" meta="LAP 12" interactive>
             <a href="#" className="block px-5 py-5 outline-none">
-              <p className="font-serif text-2xl">Interactive board</p>
+              <p className="headline text-2xl">Interactive board</p>
               <p className="label mt-2 text-[11px] text-muted">Frame turns amber on hover / focus</p>
             </a>
           </PitBoard>
@@ -152,7 +152,7 @@ export default async function Kit({ params }: PageProps<"/[lang]/dev/kit">) {
             <div className="flex flex-1 flex-col justify-between gap-6 px-5 py-5">
               <div>
                 <p className="label text-[11px] text-formula">FORMULA</p>
-                <p className="mt-2 font-serif text-2xl">Night Street Circuit</p>
+                <p className="headline mt-2 text-2xl">Night Street Circuit</p>
               </div>
               <Button size="sm" variant="secondary" className="self-start">
                 Add to calendar

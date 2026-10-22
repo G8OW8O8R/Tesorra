@@ -48,10 +48,10 @@
   --color-store: var(--chapter-store);
   --color-live: var(--chapter-live);
 
-  --font-serif: var(--font-newsreader), ui-serif, Georgia, serif;
-  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
-  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-serif: var(--font-instrument), ui-serif, Georgia, serif;
+  --font-display: var(--font-hubot), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-mona), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-departure), ui-monospace, monospace;
 
   --ease-standard: var(--ease-standard);
   --ease-out: var(--ease-out);
@@ -95,16 +95,27 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
+  /* One weight only: never a smeared synthetic bold or slant on the pixels. */
+  font-weight: 400;
+  font-synthesis: none;
 }
 
-/* Headings in the wordmark's voice: heavy, italic, sharp. */
+/* Headings, names and product names: wide, heavy, italic. */
 @utility headline {
   font-family: var(--font-display);
   font-weight: 900;
   font-style: italic;
+  font-stretch: 125%;
   font-variation-settings:
-    "SOFT" 0,
-    "opsz" 144;
+    "wdth" 125,
+    "wght" 900;
+}
+
+/* Driver quotes. */
+@utility quote {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
 }
 
 @utility panel {
@@ -152,6 +163,19 @@
 
 .stop[data-on] .stop-number text {
   stroke-dashoffset: 0;
+}
+
+/* A digit cell of a flip counter: the old digit (data-prev) sits over the new one while it flips. */
+.flip {
+  position: relative;
+  display: inline-block;
+}
+
+.flip::after {
+  content: attr(data-prev);
+  position: absolute;
+  inset: 0;
+  clip-path: inset(100% 0 0 0);
 }
 
 .stop-mask {
@@ -252,6 +276,88 @@ html[data-intro="skip"] .home {
   from {
     opacity: 0;
     translate: 0 var(--travel);
+  }
+}
+
+/*
+ * The hero wordmark stands on the horizon (the page measures and places it; this is where it lands
+ * before that): its lower quarter fades into the haze, less and less as it flies into the bar.
+ */
+:root {
+  /* Side margin of the page, the bar's height (with its hairline) and the band along the bottom
+     edge kept for the progress bar and its label: nothing else goes in it. */
+  --gutter: 1rem;
+  --bar-h: calc(3rem + 1px);
+  --dock-h: calc(64px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 640px) {
+  :root {
+    --gutter: 1.5rem;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --dock-h: calc(56px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Opening view: slogan and next race 32 px over the dock; stacked until there is room side by side. */
+.hero-slogan {
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--dock-h) + 32px + 1.25rem + 12px);
+}
+
+.hero-race {
+  left: var(--gutter);
+  bottom: calc(var(--dock-h) + 32px);
+}
+
+@media (min-width: 1024px) {
+  .hero-slogan {
+    right: auto;
+    max-width: calc(100% - 2 * var(--gutter) - 26rem);
+    bottom: calc(var(--dock-h) + 32px);
+  }
+
+  .hero-race {
+    left: auto;
+    right: var(--gutter);
+  }
+}
+
+.hero-mark {
+  top: max(3.75rem, calc(33svh - 0.1922 * (100vw - 2rem)));
+}
+
+@media (min-width: 640px) {
+  .hero-mark {
+    top: max(3.75rem, calc(41.6svh - 0.1922 * (100vw - 3rem)));
+  }
+}
+
+.hero-fog {
+  mask-image: linear-gradient(to top, rgb(0 0 0 / calc(1 - var(--fog, 1))) 0%, #000 25%);
+}
+
+/* The opening slogan: the headline face one step lighter. */
+.hero-line {
+  font-weight: 700;
+  font-variation-settings:
+    "wdth" 125,
+    "wght" 700;
+}
+
+/* The small amber light next to the next race. */
+.pulse-dot {
+  animation: pulse-dot 1.6s var(--ease-standard) infinite;
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
   }
 }
 

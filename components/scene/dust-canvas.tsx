@@ -2,12 +2,15 @@
 
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { createSceneHost, type SceneHost } from "@/lib/scene/host";
-import type { SceneFrame, SceneStats, SceneStatus } from "@/lib/scene/protocol";
+import type { MarkMask, MarkState, SceneFrame, SceneStats, SceneStatus } from "@/lib/scene/protocol";
 import { sceneTuning } from "@/lib/scene-tuning";
 
 export type DustSceneHandle = {
-  /** Ride progress 0..1. */
-  setProgress(p: number): void;
+  /** Raw ride progress 0..1 (the scene follows it smoothly; `snap` jumps there). */
+  setProgress(p: number, snap?: boolean): void;
+  /** The wordmark drawn under the dust: its shape once, then where it is and how much shows. */
+  setMarkMask(mask: MarkMask): void;
+  setMark(mark: MarkState): void;
 };
 
 /**
@@ -21,6 +24,7 @@ export function DustCanvas({
   warmup = 0,
   onStats,
   onFrame,
+  onStatus,
 }: {
   ref?: Ref<DustSceneHandle>;
   poster?: ReactNode;
@@ -30,20 +34,31 @@ export function DustCanvas({
   onStats?: (stats: SceneStats) => void;
   /** Camera speed and the floating store products, once a frame. */
   onFrame?: (frame: SceneFrame) => void;
+  onStatus?: (status: SceneStatus) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const host = useRef<SceneHost | null>(null);
   const progress = useRef(0);
+  const mark = useRef<{ mask: MarkMask | null; state: MarkState | null }>({ mask: null, state: null });
   const [status, setStatus] = useState<SceneStatus>("loading");
   const reportStats = useEffectEvent((stats: SceneStats) => onStats?.(stats));
   const reportFrame = useEffectEvent((frame: SceneFrame) => onFrame?.(frame));
+  const reportStatus = useEffectEvent((s: SceneStatus) => onStatus?.(s));
 
   useImperativeHandle(
     ref,
     () => ({
-      setProgress(p) {
+      setProgress(p, snap) {
         progress.current = p;
-        host.current?.setProgress(p);
+        host.current?.setProgress(p, snap);
+      },
+      setMarkMask(mask) {
+        mark.current.mask = mask;
+        host.current?.setMarkMask(mask);
+      },
+      setMark(state) {
+        mark.current.state = state;
+        host.current?.setMark(state);
       },
     }),
     [],
@@ -61,11 +76,16 @@ export function DustCanvas({
       stats,
       // The intro is skipped on a return within the session (set before paint).
       warmup: document.documentElement.dataset.intro === "skip" ? 0 : warmup,
-      onStatus: setStatus,
+      onStatus: (s) => {
+        setStatus(s);
+        reportStatus(s);
+      },
       onStats: (s) => reportStats(s),
       onFrame: (f) => reportFrame(f),
     });
     scene.setProgress(progress.current);
+    if (mark.current.mask) scene.setMarkMask(mark.current.mask);
+    if (mark.current.state) scene.setMark(mark.current.state);
     host.current = scene;
 
     const resize = new ResizeObserver(() => scene.resize());

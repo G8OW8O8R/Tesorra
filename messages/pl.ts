@@ -31,10 +31,11 @@ const pl: Messages = {
   home: {
     heading: ["W sobotę bokiem,", "w niedzielę gaz do dechy."],
     sub: "Drift, formula i moto — Tesorra Racing, sezon 2026.",
+    nextRace: "Następny wyścig",
     chaptersLabel: "Rozdziały",
     chapterNames: ["DRIFT", "FORMULA", "MOTO", "SKLEP", "OGLĄDAJ NA ŻYWO"],
-    nextStop: "Następny przystanek",
-    prevStop: "Poprzedni przystanek",
+    next: "Dalej",
+    footer: "Stopka",
     chapters: {
       drift: {
         number: "21",
@@ -44,6 +45,8 @@ const pl: Messages = {
         link: "Poznaj Kubę",
         photo: "Auto Kuby bokiem w sodowym świetle",
         face: "Kuba Wierzbicki",
+        quote: "„Przyczepność jest dla spóźnionych. Ja jadę bokiem.”",
+        quoteBy: "— Kuba #21",
       },
       formula: {
         number: "08",
@@ -53,6 +56,8 @@ const pl: Messages = {
         link: "Poznaj Elenę",
         photo: "Bolid Eleny na mokrej prostej startowej nocą",
         face: "Elena Moreau",
+        quote: "„Hamuję późno, bo wcześnie hamują już wszyscy.”",
+        quoteBy: "— Elena #08",
       },
       moto: {
         number: "36",
@@ -62,6 +67,8 @@ const pl: Messages = {
         link: "Poznaj Tomása",
         photo: "Tomás z kolanem przy asfalcie w nocnym zakręcie",
         face: "Tomás Aranda",
+        quote: "„Moje kolano ma więcej okrążeń niż niejeden debiutant.”",
+        quoteBy: "— Tomás #36",
       },
       store: {
         number: "04",

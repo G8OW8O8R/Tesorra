@@ -20,7 +20,7 @@ scope.onmessage = ({ data }) => {
       engine?.resize(data.width, data.height, data.dpr);
       break;
     case "progress":
-      engine?.setProgress(data.value);
+      engine?.setProgress(data.value, data.snap);
       break;
     case "reducedMotion":
       engine?.setReducedMotion(data.value);
@@ -30,6 +30,12 @@ scope.onmessage = ({ data }) => {
       break;
     case "pointer":
       engine?.setPointer(data.pointer);
+      break;
+    case "markMask":
+      engine?.setMarkMask(data.mask);
+      break;
+    case "mark":
+      engine?.setMark(data.mark);
       break;
     case "dispose":
       engine?.dispose();

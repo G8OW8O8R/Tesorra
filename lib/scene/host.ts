@@ -4,6 +4,8 @@ import type {
   EngineEvent,
   EngineOptions,
   HostMessage,
+  MarkMask,
+  MarkState,
   PointerState,
   SceneStats,
   SceneFrame,
@@ -11,11 +13,14 @@ import type {
 } from "./protocol";
 
 export type SceneHost = {
-  setProgress(p: number): void;
+  setProgress(p: number, snap?: boolean): void;
   setReducedMotion(value: boolean): void;
   setVisible(value: boolean): void;
   /** Raw cursor, sent on straight away. */
   setPointer(pointer: PointerState): void;
+  /** The wordmark drawn under the dust: its shape once, then where it is. */
+  setMarkMask(mask: MarkMask): void;
+  setMark(mark: MarkState): void;
   /** Re-reads the container size. */
   resize(): void;
   destroy(): void;
@@ -41,6 +46,8 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
   let progress = 0;
   let reduced = options.reducedMotion;
   let visible = true;
+  let mask: MarkMask | null = null;
+  let mark: MarkState | null = null;
   let destroyed = false;
   let canvas: HTMLCanvasElement | null = null;
   let send: (message: HostMessage) => void = () => {};
@@ -83,8 +90,10 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
   };
 
   const restore = () => {
-    send({ type: "progress", value: progress });
+    send({ type: "progress", value: progress, snap: true });
     send({ type: "visible", value: visible });
+    if (mask) send({ type: "markMask", mask });
+    if (mark) send({ type: "mark", mark });
   };
 
   function runOnMainThread() {
@@ -92,11 +101,13 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
     let engine: DustEngine | null = null;
     send = (message) => {
       if (!engine) return;
-      if (message.type === "progress") engine.setProgress(message.value);
+      if (message.type === "progress") engine.setProgress(message.value, message.snap);
       else if (message.type === "resize") engine.resize(message.width, message.height, message.dpr);
       else if (message.type === "reducedMotion") engine.setReducedMotion(message.value);
       else if (message.type === "visible") engine.setVisible(message.value);
       else if (message.type === "pointer") engine.setPointer(message.pointer);
+      else if (message.type === "markMask") engine.setMarkMask(message.mask);
+      else if (message.type === "mark") engine.setMark(message.mark);
     };
     teardown = () => engine?.dispose();
     import("./engine")
@@ -150,9 +161,9 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
   }
 
   return {
-    setProgress(p) {
+    setProgress(p, snap) {
       progress = p;
-      send({ type: "progress", value: p });
+      send({ type: "progress", value: p, snap });
     },
     setReducedMotion(value) {
       reduced = value;
@@ -160,6 +171,14 @@ export function createSceneHost(container: HTMLElement, options: HostOptions): S
     },
     setPointer(pointer) {
       send({ type: "pointer", pointer });
+    },
+    setMarkMask(value) {
+      mask = value;
+      send({ type: "markMask", mask: value });
+    },
+    setMark(value) {
+      mark = value;
+      send({ type: "mark", mark: value });
     },
     setVisible(value) {
       visible = value;

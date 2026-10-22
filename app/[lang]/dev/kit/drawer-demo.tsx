@@ -42,7 +42,7 @@ export function DrawerDemo({ t }: { t: Messages["ui"] }) {
             <li key={line.name} className="flex items-center justify-between gap-4 py-4 first:pt-0">
               <div className="min-w-0">
                 <p className="label text-[10px] text-muted">{line.meta}</p>
-                <p className="mt-1 truncate font-serif text-lg">{line.name}</p>
+                <p className="mt-1 truncate headline text-lg">{line.name}</p>
                 <p className="label mt-1 text-xs">{line.price}</p>
               </div>
               <QuantityStepper size="sm" defaultValue={line.qty} labels={t} />

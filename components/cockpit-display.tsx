@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { getDashboard, HOME_CHAPTERS, rideToStop, subscribeDashboard } from "@/lib/dashboard";
+import { writeDigits } from "@/lib/flip-digits";
 import type { Messages } from "@/messages";
 
 /** Progress is quantised to 1/24 so both the 6+6 and the 4+4 rows land on whole lights. */
@@ -104,7 +105,7 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
 
     let blink = 0;
     const off = subscribeDashboard((d) => {
-      write(speed, String(d.kmh));
+      writeDigits(speed, String(d.kmh));
       write(gear, d.gear === 0 ? t.neutral : String(d.gear));
       const index = d.chapter ?? 0;
       write(number, String(index + 1).padStart(2, "0"));

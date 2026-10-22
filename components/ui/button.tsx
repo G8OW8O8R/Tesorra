@@ -5,7 +5,7 @@ type Variant = "primary" | "secondary";
 type Size = "sm" | "md";
 
 const base =
-  "label inline-flex select-none items-center justify-center gap-2 whitespace-nowrap transition-[background-color,border-color,color,translate] duration-(--dur-fast) ease-standard active:translate-y-px disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40";
+  "inline-flex select-none font-semibold items-center justify-center gap-2 whitespace-nowrap transition-[background-color,border-color,color,translate] duration-(--dur-fast) ease-standard active:translate-y-px disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40";
 
 const variants: Record<Variant, string> = {
   primary: "bg-amber text-bg hover:bg-fg",
@@ -13,8 +13,8 @@ const variants: Record<Variant, string> = {
 };
 
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-[11px]",
-  md: "h-11 px-5 text-xs",
+  sm: "h-8 px-3 text-xs",
+  md: "h-11 px-5 text-sm",
 };
 
 export function buttonClass(variant: Variant = "primary", size: Size = "md", className = "") {

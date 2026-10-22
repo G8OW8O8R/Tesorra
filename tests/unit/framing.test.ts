@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { bodyPoses, cameraPose, carPosition, getRide, type BodyPose } from "@/lib/scene/choreography";
+import {
+  bodyPoses,
+  cameraPose,
+  carPosition,
+  fieldOfView,
+  getRide,
+  heroHorizon,
+  lensShift,
+  portraitOf,
+  type BodyPose,
+} from "@/lib/scene/choreography";
 import {
   bodyMatrix,
-  DEG,
   lookAt,
   mat4,
   multiply,
@@ -42,13 +51,16 @@ function place(id: Vehicle, pose: BodyPose) {
 
 /** Screen box (NDC) of a vehicle's bounding box at the middle of a stop. */
 function frameAt(id: Vehicle, stop: number, aspect: number, portrait: number) {
-  const p = ride.timeline.stopCentres[stop];
+  return frameAtProgress(id, ride.timeline.stopCentres[stop], aspect, portrait);
+}
+
+/** Screen box (NDC) of a vehicle's bounding box at ride progress p. */
+function frameAtProgress(id: Vehicle, p: number, aspect: number, portrait: number) {
   const poses = bodyPoses(ride, p);
   const mark = (v: Vehicle) => ({ centre: place(v, poses[v]).centre, d: poses[v].d, u: poses[v].u });
   const view = cameraPose(ride, p, { drift: mark("car"), formula: mark("formula"), moto: mark("moto") }, portrait);
-  const minVertical = 2 * Math.atan(Math.tan((T.camera.minHorizontalFov * DEG) / 2) / aspect);
-  const proj = perspective(mat4(), Math.max(T.camera.fov * DEG, minVertical), aspect, T.camera.near, T.camera.far);
-  proj[9] = -T.camera.portraitShift * portrait * view.hold;
+  const proj = perspective(mat4(), fieldOfView(ride, aspect), aspect, T.camera.near, T.camera.far);
+  proj[9] = -lensShift(ride, view, portrait);
   const vp = multiply(mat4(), proj, lookAt(mat4(), view.eye, view.target));
   const { m } = place(id, poses[id]);
   const b = BOUNDS[id];
@@ -89,5 +101,33 @@ describe("vehicle framing", () => {
       expect(box.y[0], id).toBeGreaterThan(-1);
       expect(box.y[1], id).toBeLessThan(1);
     }
+  });
+});
+
+describe("opening view", () => {
+  it("parks the drift car large in the lower right, its roof up at the horizon", () => {
+    const aspect = 16 / 9;
+    const box = frameAtProgress("car", 0, aspect, 0);
+    const horizon = heroHorizon(ride, aspect);
+    expect(share(box)).toBeGreaterThan(0.45);
+    expect(share(box)).toBeLessThan(0.62);
+    expect((box.x[0] + box.x[1]) / 2).toBeGreaterThan(0.2);
+    expect(box.x[1]).toBeLessThan(1.05);
+    expect(box.y[0]).toBeLessThan(-0.45);
+    // The wordmark's feet sink into the haze at the horizon: the roof reaches up to them.
+    expect(Math.abs(box.y[1] - horizon)).toBeLessThan(0.12);
+    expect(horizon).toBeGreaterThan(0.1);
+    expect(horizon).toBeLessThan(0.3);
+  });
+
+  it("keeps the car under the wordmark and in frame on a phone held upright", () => {
+    const aspect = 9 / 19.5;
+    const box = frameAtProgress("car", 0, aspect, portraitOf(aspect));
+    const horizon = heroHorizon(ride, aspect);
+    expect(box.x[0]).toBeGreaterThan(-1);
+    expect(box.x[1]).toBeLessThan(1);
+    expect(box.y[0]).toBeGreaterThan(-1);
+    expect((box.y[0] + box.y[1]) / 2).toBeLessThan(horizon);
+    expect(horizon).toBeGreaterThan(0.1);
   });
 });

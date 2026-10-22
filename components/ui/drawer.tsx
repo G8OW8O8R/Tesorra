@@ -72,7 +72,7 @@ export function Drawer({ open, onClose, title, eyebrow, closeLabel, footer, chil
         <header className="flex items-start justify-between gap-4 border-b border-line px-5 pt-4 pb-4 sm:px-6 sm:pt-5">
           <div>
             {eyebrow && <p className="label text-[11px] text-muted">{eyebrow}</p>}
-            <h2 id={titleId} className="mt-1 font-serif text-2xl leading-tight">
+            <h2 id={titleId} className="headline mt-1 text-2xl leading-tight">
               {title}
             </h2>
           </div>

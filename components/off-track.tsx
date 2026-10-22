@@ -5,7 +5,7 @@ export function OffTrack({ t, homeHref }: { t: Messages["notFound"]; homeHref: s
   return (
     <section className="flex w-full flex-1 flex-col justify-center px-4 py-24 sm:px-6">
       <p className="label text-[11px] text-muted">404</p>
-      <h1 className="mt-4 font-serif text-6xl leading-[0.95] tracking-tight sm:text-8xl">
+      <h1 className="headline mt-4 text-6xl leading-[0.92] sm:text-8xl">
         {t.heading}
       </h1>
       <p className="mt-6 max-w-md text-muted">{t.line}</p>

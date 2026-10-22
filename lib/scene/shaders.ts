@@ -62,6 +62,9 @@ vec3 bodyLocal(vec3 pos, vec4 seed, vec4 frame, float copy, out float t, out flo
  * Rest position of a smoke grain (expects uTime, uCamPos and the SWIRL helpers). A grain's birth
  * is a point on the slide, so whether it exists, where it started and how far it has grown all
  * follow from scroll progress; time only churns it.
+ * With uBurn.x > 0 (burnout smoke) grains run on a clock instead: each lives uBurn.x seconds and is
+ * born again at the wheels, only between uBurn.y and uBurn.z; the emitter path is then the car's
+ * entrance, which starts at uBurn.w and lasts uBurnDrive seconds.
  */
 const SMOKE = /* glsl */ `
 uniform highp sampler2D uEmit;
@@ -73,6 +76,8 @@ uniform vec2 uSmokeSize;
 uniform vec2 uSmokeLife;
 uniform vec2 uSmokeFade;
 uniform float uSmokeStreak;
+uniform vec4 uBurn;
+uniform float uBurnDrive;
 
 // Set by smokeWorld: the emitter's backward direction and how far the grain has grown.
 vec3 smokeBack;
@@ -89,6 +94,12 @@ vec4 emitter(int row, float b) {
 vec3 smokeWorld(vec3 pos, vec4 seed, out float alpha, out float size) {
   float birth = pos.x;
   float age = uSlide - birth;
+  if (uBurn.x > 0.0) {
+    float phase = fract(birth + uTime / uBurn.x);
+    float born = uTime - phase * uBurn.x;
+    age = born < uBurn.y || born > uBurn.z ? -1.0 : max(phase * uSmokeLife.x, 1e-4);
+    birth = clamp((born - uBurn.w) / uBurnDrive, 0.0, 1.0);
+  }
   alpha = 0.0;
   size = 1.0;
   smokeBack = vec3(0.0);
@@ -174,10 +185,13 @@ uniform float uSharpPx;
 uniform vec4 uLimits;
 uniform vec3 uStreak;
 uniform vec3 uAtmos;
+uniform vec2 uCore;
 
 out vec3 vColor;
 out vec2 vLocal;
 out float vHalf;
+out float vRadius;
+out float vCore;
 out float vSoft;
 
 ${SWIRL}
@@ -204,6 +218,8 @@ void main() {
     vColor = vec3(0.0);
     vLocal = vec2(0.0);
     vHalf = 0.0;
+    vRadius = 1.0;
+    vCore = 1.0;
     vSoft = 0.0;
     return;
   }
@@ -241,11 +257,17 @@ void main() {
   vec2 perp = vec2(-dir.y, dir.x);
   energy *= r / (r + halfLen);
 
+  // The sharp core is a share of the radius (never under a minimum); the quad reaches a pixel past
+  // it for the antialiased rim and the halo.
+  float core = max(r * uCore.x, uCore.y);
+  float quad = max(r, core + 1.0);
   vec2 centre = ndc * halfVp - dir * halfLen * (2.0 * uStreak.z - 1.0);
-  vec2 offset = dir * aCorner.x * (r + halfLen) + perp * aCorner.y * r;
+  vec2 offset = dir * aCorner.x * (quad + halfLen) + perp * aCorner.y * quad;
   gl_Position = vec4((centre + offset) / halfVp, 0.0, 1.0);
-  vLocal = vec2(aCorner.x * (r + halfLen) / r, aCorner.y);
-  vHalf = halfLen / r;
+  vLocal = vec2(aCorner.x * (quad + halfLen), aCorner.y * quad);
+  vHalf = halfLen;
+  vRadius = r;
+  vCore = core;
   vSoft = soft;
 
   vec3 c = max(hueRotate(uColor, (aSeed.x * 2.0 - 1.0) * uHueJitter), 0.0);
@@ -472,17 +494,31 @@ precision highp float;
 in vec3 vColor;
 in vec2 vLocal;
 in float vHalf;
+in float vRadius;
+in float vCore;
 in float vSoft;
+uniform float uCoreShare;
 out vec4 outColor;
 
+const float PI = 3.14159265;
+
 void main() {
-  // Capsule distance: a round splat, or a streak when stretched.
+  // Capsule distance in pixels: a round splat, or a streak when stretched.
   vec2 q = vec2(max(abs(vLocal.x) - vHalf, 0.0), vLocal.y);
-  float d2 = dot(q, q);
-  if (d2 > 1.0) discard;
-  float spark = exp(-d2 * 4.0) * 1.3;
-  float bokeh = (1.0 - smoothstep(0.55, 1.0, sqrt(d2))) * 0.53;
-  outColor = vec4(vColor * mix(spark, bokeh, vSoft), 1.0);
+  float d = length(q);
+  float r = vRadius;
+  float c = vCore;
+  float quad = max(r, c + 1.0);
+  if (d > quad) discard;
+  // A sharp grain is a flat core with a one-pixel antialiased rim plus a soft halo out to the quad's
+  // edge, sharing the energy of a grain of radius r (r² once integrated, as the splat always had).
+  float rim = 1.0 - smoothstep(c - 0.5, c + 0.5, d);
+  float halo = exp(-4.0 * d * d / (quad * quad));
+  float e = r * r;
+  float sharp = uCoreShare * e * rim / (PI * (c * c + 1.0 / 12.0)) + (1.0 - uCoreShare) * e * halo / (0.771 * quad * quad);
+  // Out of focus: an even disc over the whole radius (depth of field only).
+  float bokeh = (1.0 - smoothstep(0.55, 1.0, d / r)) * 0.53;
+  outColor = vec4(vColor * mix(sharp, bokeh, vSoft), 1.0);
 }
 `;
 
@@ -511,6 +547,18 @@ void main() {
   float glow = uGlow.x * band * exp(-(1.0 - facing) / uGlow.w);
   float haze = uHaze.x * exp(-abs(e + uHaze.z) / uHaze.y);
   outColor = vec4((uGlowColor * glow + uHazeColor * haze) * uEncode, 1.0);
+}
+`;
+
+/** Last frame's dust, faded, laid over this one with a max blend: moving grains leave an afterglow. */
+export const trailFragment = /* glsl */ `#version 300 es
+precision highp float;
+in vec2 vUv;
+uniform sampler2D uSrc;
+uniform float uFade;
+out vec4 outColor;
+void main() {
+  outColor = vec4(texture(uSrc, vUv).rgb * uFade, 1.0);
 }
 `;
 
@@ -618,12 +666,22 @@ void main() {
 }
 `;
 
-/** HDR + bloom → exposure → ACES → sRGB, laid over the page background, plus grain. */
+/** Letter boundaries the composite takes for the wordmark (one fewer than the letters it tells apart). */
+export const MARK_CUTS = 8;
+
+/**
+ * HDR + bloom → exposure → ACES → sRGB, laid over the page background, plus grain.
+ * The wordmark is part of that background: the dust is screened over it, and where the car or
+ * dense dust is it covers the letters. Its lower part fades into the horizon haze. After the
+ * intro its letters gather one after another from grains flying in from below.
+ */
 export const compositeFragment = /* glsl */ `#version 300 es
 precision highp float;
 in vec2 vUv;
 uniform sampler2D uScene;
 uniform sampler2D uBloom;
+uniform sampler2D uCar;
+uniform sampler2D uMark;
 uniform float uDecode;
 uniform float uExposure;
 uniform float uBloomGain;
@@ -631,6 +689,18 @@ uniform float uVignette;
 uniform float uGrain;
 uniform float uTime;
 uniform vec3 uBackground;
+uniform vec2 uResolution;
+// Wordmark: rect in uv (left, bottom, right, top); colour (linear); opacity, fog share of its
+// height, fog amount, letter slant; seconds since it began gathering, seconds per letter, delay
+// between letters, letters - 1; grain px, scatter (share of its width), heat, aspect (w / h px);
+// letter boundaries along the slanted x; and what covers it (car gain, dust gain, dust floor).
+uniform vec4 uMarkRect;
+uniform vec3 uMarkColor;
+uniform vec4 uMarkLook;
+uniform vec4 uMarkForm;
+uniform vec4 uMarkGrain;
+uniform float uMarkCuts[${MARK_CUTS}];
+uniform vec3 uCover;
 out vec4 outColor;
 
 vec3 aces(vec3 x) {
@@ -641,6 +711,58 @@ vec3 toSrgb(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 
+float luma(vec3 c) {
+  return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float hash12(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+
+// Coverage of the wordmark at m (0..1 across its rect, y up); nothing outside it.
+float markAt(vec2 m) {
+  vec2 inside = step(vec2(0.0), m) * step(m, vec2(1.0));
+  return texture(uMark, vec2(m.x, 1.0 - m.y)).r * inside.x * inside.y;
+}
+
+// Which letter m falls in, 0 (left) .. 1 (right), along the slant of the letters.
+float letterOf(vec2 m) {
+  float x = m.x + uMarkLook.w * (0.5 - m.y);
+  float n = 0.0;
+  for (int i = 0; i < ${MARK_CUTS}; i++) n += step(uMarkCuts[i], x);
+  return uMarkForm.w > 0.0 ? min(n, uMarkForm.w) / uMarkForm.w : 0.0;
+}
+
+// The wordmark here: sRGB colour and how much of it shows.
+vec4 mark() {
+  vec2 size = uMarkRect.zw - uMarkRect.xy;
+  vec2 m = (vUv - uMarkRect.xy) / size;
+  if (uMarkLook.x <= 0.0 || m.x < -0.2 || m.x > 1.2 || m.y < -0.5 || m.y > 1.5) return vec4(0.0);
+  float q = clamp((uMarkForm.x - letterOf(clamp(m, 0.0, 1.0)) * uMarkForm.w * uMarkForm.z) / uMarkForm.y, 0.0, 1.0);
+  float a = markAt(m);
+  float heat = 0.0;
+  if (q < 1.0) {
+    // Each grain is a small square cell that flies in from below on its own delay.
+    vec2 cell = floor(gl_FragCoord.xy / uMarkGrain.x);
+    float h1 = hash12(cell);
+    float h2 = hash12(cell + 17.31);
+    float h3 = hash12(cell + 41.97);
+    float e = clamp((q - 0.55 * h1) / 0.45, 0.0, 1.0);
+    float k = 1.0 - pow(1.0 - e, 3.0);
+    float angle = h2 * 6.2831853;
+    vec2 dir = vec2(cos(angle), sin(angle) * uMarkGrain.w) * (0.3 + h3) + vec2(0.0, 0.8 * uMarkGrain.w);
+    vec2 centre = ((cell + 0.5) * uMarkGrain.x / uResolution - uMarkRect.xy) / size;
+    float grain = step(0.5, markAt(centre + dir * uMarkGrain.y * (1.0 - k))) * step(1e-3, e);
+    float settle = smoothstep(0.85, 1.0, q);
+    a = mix(grain, a, settle);
+    heat = (1.0 - k) * (1.0 - settle);
+  }
+  float fog = mix(1.0, smoothstep(0.0, uMarkLook.y, m.y), uMarkLook.z);
+  vec3 colour = toSrgb(clamp(uMarkColor * (1.0 + heat * uMarkGrain.z), 0.0, 1.0));
+  return vec4(colour, a * fog * uMarkLook.x);
+}
 void main() {
   vec3 hdr = texture(uScene, vUv).rgb * uDecode;
   vec3 bloom = texture(uBloom, vUv).rgb * uDecode;
@@ -648,8 +770,17 @@ void main() {
   vec2 v = vUv - 0.5;
   c *= 1.0 - uVignette * dot(v, v) * 2.0;
   c = toSrgb(aces(c));
-  c = 1.0 - (1.0 - c) * (1.0 - uBackground);
+  vec3 base = uBackground;
+  vec4 word = mark();
+  if (word.a > 0.0) {
+    float car = luma(texture(uCar, vUv).rgb * uDecode);
+    float cover = 1.0 - exp(-uCover.x * car - uCover.y * max(luma(hdr) - uCover.z, 0.0));
+    base = mix(base, word.rgb, word.a * (1.0 - cover));
+  }
+  c = 1.0 - (1.0 - c) * (1.0 - base);
+  // Grain only in the dark tones, so the fine dust keeps its edges.
   float n = fract(sin(dot(gl_FragCoord.xy + fract(uTime) * 97.0, vec2(12.9898, 78.233))) * 43758.5453);
-  outColor = vec4(c + (n - 0.5) * uGrain, 1.0);
+  float dark = 1.0 - smoothstep(0.0, 0.3, dot(c, vec3(0.2126, 0.7152, 0.0722)));
+  outColor = vec4(c + (n - 0.5) * uGrain * dark, 1.0);
 }
 `;

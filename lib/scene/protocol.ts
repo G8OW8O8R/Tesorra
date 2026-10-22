@@ -22,10 +22,27 @@ export type EngineOptions = {
  */
 export type PointerState = { x: number; y: number; vx: number; vy: number; at: number; active: boolean };
 
-/** Frames per second, points drawn per frame, and the adaptive density (share of the dense layers). */
-export type SceneStats = { fps: number; points: number; density: number };
+/**
+ * Frames per second, points drawn per frame, the adaptive density (share of the dense layers), the
+ * engine's own time per frame on its thread (ms) and the GPU time per frame (ms, null without timer
+ * queries).
+ */
+export type SceneStats = { fps: number; points: number; density: number; cpu: number; gpu: number | null };
 
 export type SceneStatus = "loading" | "ready" | "unsupported" | "error";
+
+/**
+ * The TESORRA wordmark's shape for the scene: one byte of coverage a texel (rows from the top),
+ * the boundaries between its letters as shares of its width along the slant of the letters, and
+ * that slant (x shift per unit of height, as a share of the width).
+ */
+export type MarkMask = { width: number; height: number; data: Uint8Array; cuts: number[]; slope: number };
+
+/**
+ * Where the page has the wordmark (shares of the viewport: left, top, right, bottom), how much of
+ * it the scene draws (0..1) and how much of its fade into the horizon shows (0..1).
+ */
+export type MarkState = { rect: [number, number, number, number]; opacity: number; fog: number };
 
 /**
  * Sent once a frame as one transferable array: camera speed (m/s, damped as the engine uses it),
@@ -42,8 +59,11 @@ export type EngineEvent =
 export type HostMessage =
   | { type: "init"; canvas: OffscreenCanvas; options: EngineOptions }
   | { type: "resize"; width: number; height: number; dpr: number }
-  | { type: "progress"; value: number }
+  /** Raw ride progress (the scroll target); the engine damps the camera towards it, or jumps with `snap`. */
+  | { type: "progress"; value: number; snap?: boolean }
   | { type: "reducedMotion"; value: boolean }
   | { type: "visible"; value: boolean }
   | { type: "pointer"; pointer: PointerState }
+  | { type: "markMask"; mask: MarkMask }
+  | { type: "mark"; mark: MarkState }
   | { type: "dispose" };

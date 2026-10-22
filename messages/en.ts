@@ -30,10 +30,11 @@ const en = {
   home: {
     heading: ["Sideways on Saturday,", "flat out on Sunday."],
     sub: "Drift, formula and moto — Tesorra Racing, season 2026.",
+    nextRace: "Next race",
     chaptersLabel: "Chapters",
     chapterNames: ["DRIFT", "FORMULA", "MOTO", "STORE", "WATCH US LIVE"],
-    nextStop: "Next stop",
-    prevStop: "Previous stop",
+    next: "Next",
+    footer: "Footer",
     chapters: {
       drift: {
         number: "21",
@@ -43,6 +44,8 @@ const en = {
         link: "Meet Kuba",
         photo: "Kuba's car, sideways under the sodium lights",
         face: "Kuba Wierzbicki",
+        quote: "“Grip is for people running late. I’m never late — just sideways.”",
+        quoteBy: "— Kuba #21",
       },
       formula: {
         number: "08",
@@ -52,6 +55,8 @@ const en = {
         link: "Meet Elena",
         photo: "Elena's car on the wet start straight at night",
         face: "Elena Moreau",
+        quote: "“I brake late because early is already taken.”",
+        quoteBy: "— Elena #08",
       },
       moto: {
         number: "36",
@@ -61,6 +66,8 @@ const en = {
         link: "Meet Tomás",
         photo: "Tomás with his knee down in a night corner",
         face: "Tomás Aranda",
+        quote: "“My knee has done more laps on the tarmac than most rookies.”",
+        quoteBy: "— Tomás #36",
       },
       store: {
         number: "04",

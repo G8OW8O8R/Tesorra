@@ -75,7 +75,9 @@ export function carPose(ride: Ride, p: number): CarPose {
     // Launch: the car pulls ahead of the camera and swings to the outside for the entry.
     const local = clamp((camera - launchFrom) / (start - launchFrom), 0, 1);
     const s = ease(Math.pow(local, 0.8));
-    const d = lerp(c.heroDistance, stop.distance - c.entry, s);
+    // Never let the camera catch up: the car keeps at least its parked lead, shrinking to nothing
+    // by the slide, where the camera rides level with it.
+    const d = Math.max(lerp(c.heroDistance, stop.distance - c.entry, s), camera + (c.heroDistance - launchFrom) * (1 - local));
     const u = lerp(c.heroLateral, outside * c.lane, ease(local));
     const squat = c.squat * DEG * Math.sin(Math.PI * clamp(local / 0.35, 0, 1));
     const straighten = 1 - ease(clamp(local / 0.4, 0, 1));
@@ -103,6 +105,17 @@ export function carPose(ride: Ride, p: number): CarPose {
   };
 }
 
+/**
+ * The car's entrance into the opening view, `k` from 0 (off to the right) to 1 (parked): what to add
+ * to its pose. It slides in sideways and brakes, the extra slip unwinding a little later.
+ */
+export function entranceOffset(ride: Ride, k: number) {
+  const [d, u, slip] = ride.tuning.car.drive.from;
+  const left = 1 - clamp(k, 0, 1);
+  const travel = left * left * left;
+  return { d: d * travel, u: u * travel, yaw: slip * DEG * left * left };
+}
+
 /** Camera distances over which the car slides through the drift corner (its entry to its exit). */
 export function slideWindow(ride: Ride): [number, number] {
   const apex = ride.track.stops[0].distance;
@@ -117,9 +130,10 @@ export function carPosition(ride: Ride, pose: { d: number; u: number }): Vec3 {
 
 /**
  * `focus`: depth-of-field focus distance (on the vehicle at stops, on the road ahead between them);
- * `hold`: how fully a stop's framing has taken over (0 riding, 1 held at a stop).
+ * `hold`: how fully a stop's framing has taken over (0 riding, 1 held at a stop);
+ * `hero`: how fully the opening view's camera still holds (1 before the ride sets off).
  */
-export type CameraPose = { eye: Vec3; target: Vec3; distance: number; focus: number; hold: number };
+export type CameraPose = { eye: Vec3; target: Vec3; distance: number; focus: number; hold: number; hero: number };
 
 /** Where a stop's vehicle is: lifted body centre plus its place on the track. */
 export type CarMark = { centre: Vec3; d: number; u: number };
@@ -190,9 +204,13 @@ export function cameraPose(ride: Ride, p: number, marks: Marks = {}, portrait = 
   const d = timeline.distanceAt(p);
   const f = track.frame(d);
   const ahead = track.frame(d + cam.lookAhead);
+  // The opening view sits lower and nearer level, and eases into the ride's camera as it sets off.
+  const h = tuning.hero;
+  const hero = 1 - smoothstep(tuning.scroll.heroDistance, tuning.scroll.heroDistance + h.blend, d);
+  const lateral = lerp(cam.lateral, lerp(h.lateral, h.portraitLateral, portrait), hero);
 
-  let eye = add(add(f.pos, scale(f.side, cam.lateral)), [0, cam.height, 0]);
-  let target: Vec3 = [ahead.pos[0], ahead.pos[1] + cam.targetHeight, ahead.pos[2]];
+  let eye = add(add(f.pos, scale(f.side, lateral)), [0, lerp(cam.height, h.height, hero), 0]);
+  let target: Vec3 = [ahead.pos[0], ahead.pos[1] + lerp(cam.targetHeight, h.targetHeight, hero), ahead.pos[2]];
   // What the lens holds sharp at the strongest nearby stop.
   let subject: { pos: Vec3; w: number } | null = null;
 
@@ -212,7 +230,37 @@ export function cameraPose(ride: Ride, p: number, marks: Marks = {}, portrait = 
     eye = add(target, scale(sub(eye, target), 1 + (cam.portraitPull - 1) * portrait * hold));
   }
   const focus = subject ? lerp(tuning.dof.roadFocus, length(sub(subject.pos, eye)), subject.w) : tuning.dof.roadFocus;
-  return { eye, target, distance: d, focus, hold };
+  return { eye, target, distance: d, focus, hold, hero };
+}
+
+/** Vertical field of view (radians) for a screen of this aspect, widened by `kick` degrees. */
+export function fieldOfView(ride: Ride, aspect: number, kick = 0) {
+  const cam = ride.tuning.camera;
+  const minVertical = 2 * Math.atan(Math.tan((cam.minHorizontalFov * DEG) / 2) / aspect);
+  return Math.max((cam.fov + kick) * DEG, minVertical + kick * DEG);
+}
+
+/** How far towards portrait a screen of this aspect is (0 landscape, 1 portrait). */
+export function portraitOf(aspect: number) {
+  return clamp((1 - aspect) / 0.25, 0, 1);
+}
+
+/** Lens shift of the picture (NDC, + = up) on portrait screens, at a stop and in the opening view. */
+export function lensShift(ride: Ride, view: CameraPose, portrait: number) {
+  return (ride.tuning.camera.portraitShift * view.hold + ride.tuning.hero.portraitShift * view.hero) * portrait;
+}
+
+/**
+ * Where the horizon crosses a screen of this aspect in the opening view (NDC y, +1 at the top):
+ * the page stands the wordmark on it.
+ */
+export function heroHorizon(ride: Ride, aspect: number) {
+  const portrait = portraitOf(aspect);
+  const view = cameraPose(ride, 0, {}, portrait);
+  const dir = normalize(sub(view.target, view.eye));
+  // A level ray ahead sits as far above the middle of the picture as the camera looks down.
+  const down = -Math.asin(clamp(dir[1], -1, 1));
+  return Math.tan(down) / Math.tan(fieldOfView(ride, aspect) / 2) + lensShift(ride, view, portrait);
 }
 
 const palettes = {

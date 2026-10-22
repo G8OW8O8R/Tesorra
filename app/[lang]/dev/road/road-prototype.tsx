@@ -25,7 +25,8 @@ function describe(p: number) {
 function readoutText({ p, stats }: { p: number; stats: SceneStats | null }) {
   const d = getRide().timeline.distanceAt(p);
   const perf = stats
-    ? ` · ${stats.fps} FPS · ${(stats.points / 1e6).toFixed(2)}M PTS · ${Math.round(stats.density * 100)}%`
+    ? ` · ${stats.fps} FPS · ${(stats.points / 1e6).toFixed(2)}M PTS · ${Math.round(stats.density * 100)}%` +
+      ` · ENGINE ${stats.cpu.toFixed(1)} MS · GPU ${stats.gpu === null ? "N/A" : `${stats.gpu.toFixed(1)} MS`}`
     : "";
   return `P ${p.toFixed(3)} · D ${d.toFixed(1)} · ${describe(p)}${perf}`;
 }
