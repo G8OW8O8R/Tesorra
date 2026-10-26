@@ -10,7 +10,7 @@ import sharp from "sharp";
 const SRC = "assets-src";
 const OUT = "public/img";
 const MANIFEST = "lib/images.ts";
-const WIDTHS = [640, 1280, 1920];
+const WIDTHS = [320, 640, 1280, 1920];
 const FORMATS = {
   avif: { quality: 55, effort: 6 },
   webp: { quality: 78, effort: 5 },

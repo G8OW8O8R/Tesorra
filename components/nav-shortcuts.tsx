@@ -2,10 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import type { Locale } from "@/lib/i18n";
+import { type HomeStop, useRideHome } from "./use-ride-home";
 
-export type Shortcut = { key: string; href: string };
+/** A key that opens a page, or rides to a stop of the home page. */
+export type Shortcut = { key: string; href: string } | { key: string; stop: HomeStop };
 
-function isTyping(target: EventTarget | null): boolean {
+export function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
     target.isContentEditable ||
@@ -16,8 +19,9 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** Single-key navigation shortcuts; ignored while typing or with modifiers held. */
-export function NavShortcuts({ shortcuts }: { shortcuts: Shortcut[] }) {
+export function NavShortcuts({ lang, shortcuts }: { lang: Locale; shortcuts: Shortcut[] }) {
   const router = useRouter();
+  const rideHome = useRideHome(lang);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -27,11 +31,12 @@ export function NavShortcuts({ shortcuts }: { shortcuts: Shortcut[] }) {
       const match = shortcuts.find((s) => s.key === event.key.toLowerCase());
       if (!match) return;
       event.preventDefault();
-      router.push(match.href);
+      if ("stop" in match) rideHome(match.stop);
+      else router.push(match.href);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [router, shortcuts]);
+  }, [router, rideHome, shortcuts]);
 
   return null;
 }

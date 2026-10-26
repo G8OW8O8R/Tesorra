@@ -5,6 +5,7 @@ import { Picture } from "@/components/ui/picture";
 import {
   disciplineDriver,
   roundEnd,
+  roundDayMonth,
   roundStart,
   season,
   upcomingRounds,
@@ -36,15 +37,6 @@ function upcoming(now: number | null, count?: number) {
 
 const fill = (template: string, values: Record<string, string | number>) =>
   template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ""));
-
-/** Day and month at the venue, e.g. 31.10. */
-function dayMonth(r: Round, lang: Locale) {
-  const parts = new Intl.DateTimeFormat(lang, { day: "2-digit", month: "2-digit", timeZone: r.timeZone }).formatToParts(
-    roundStart(r),
-  );
-  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${part("day")}.${part("month")}`;
-}
 
 /** Thumbnail for a round, by discipline. */
 const THUMB: Record<Discipline, ImageKey> = {
@@ -102,18 +94,21 @@ export function LiveCountdown({ t }: { t: LiveText }) {
 
   return (
     <div ref={root} className="mt-2">
-      {/* Phones run it across the full width. */}
+      {/*
+        Phones run it across the full width. Sizes and gaps are in the digits' em: each unit keeps
+        0.18em clear of its digits and sits on their baseline.
+      */}
       <p
         data-clock
         role="timer"
-        className="label flex items-baseline justify-between text-fg md:flex-wrap md:justify-start md:gap-x-[0.55em]"
+        className="label flex items-baseline justify-between text-[13vw] leading-none text-fg md:flex-wrap md:justify-start md:gap-x-[0.42em] md:text-[clamp(2.6rem,6.2vw,6.5rem)]"
       >
         {UNITS.map((unit) => (
-          <span key={unit} aria-hidden className="flex items-baseline">
-            <span data-unit={unit} className="text-[13vw] leading-none tabular-nums md:text-[clamp(2.6rem,6.2vw,6.5rem)]">
+          <span key={unit} aria-hidden className="flex items-baseline gap-[0.18em]">
+            <span data-unit={unit} className="tabular-nums">
               --
             </span>
-            <span className="ml-[0.2em] text-[4.5vw] text-amber md:text-[clamp(1rem,2vw,2rem)]">{t.units[unit]}</span>
+            <span className="text-[0.34em] tracking-normal text-amber">{t.units[unit]}</span>
           </span>
         ))}
       </p>
@@ -139,7 +134,7 @@ export function LiveRounds({ lang, t }: { lang: Locale; t: LiveText }) {
       end: roundEnd(r),
       location: `${r.venue}, ${r.city}, ${r.country}`,
       description: fill(t.calendarNote, { discipline: r.discipline.toUpperCase(), driver: disciplineDriver[r.discipline] }),
-      url: new URL(`/${lang}/season`, window.location.origin).href,
+      url: new URL(`/${lang}#live`, window.location.origin).href,
     });
     downloadIcs(text, `tesorra-r${r.round}-${r.slug}`);
   };
@@ -156,7 +151,7 @@ export function LiveRounds({ lang, t }: { lang: Locale; t: LiveText }) {
               }`}
             >
               {i === 0 ? <span aria-hidden className="absolute top-2 bottom-2 -left-3 w-px bg-accent" /> : null}
-              <span className="label text-sm tabular-nums">{dayMonth(r, lang)}</span>
+              <span className="label text-sm tabular-nums">{roundDayMonth(r, lang)}</span>
               <span className={`relative hidden aspect-[16/10] overflow-hidden bg-bg md:block ${i === 0 ? "" : "opacity-70"}`}>
                 <Picture image={THUMB[r.discipline]} alt="" sizes="72px" className="size-full object-cover" />
               </span>

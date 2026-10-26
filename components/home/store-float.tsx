@@ -4,25 +4,23 @@ import { Picture } from "@/components/ui/picture";
 import { formatPrice } from "@/lib/format";
 import type { Locale } from "@/lib/i18n";
 import type { ImageKey } from "@/lib/images";
+import { getProduct } from "@/content/store";
 import type { Messages } from "@/messages";
 
 /**
  * Products floating over the road at the store stop, in the order of `store.products` in the
  * scene tuning. `width` is the size at the reference depth (vw; phones take more of the screen).
  */
-export const FLOATING_PRODUCTS = [
-  { slug: "helmet-21", image: "store/helmet-21", priceCents: 12900, width: 15 },
-  { slug: "fuel-citrus", image: "store/can-citrus", priceCents: 350, width: 8 },
-  { slug: "drift-gloves", image: "store/gloves", priceCents: 6900, width: 13 },
-  { slug: "team-cap", image: "store/cap", priceCents: 3500, width: 13 },
-  { slug: "night-hoodie", image: "store/hoodie-front", priceCents: 8900, width: 16 },
-  { slug: "pit-jacket", image: "store/jacket", priceCents: 14900, width: 15 },
-] as const satisfies readonly {
-  slug: keyof Messages["home"]["products"];
-  image: ImageKey;
-  priceCents: number;
-  width: number;
-}[];
+export const FLOATING_PRODUCTS = (
+  [
+    { slug: "helmet-21", image: "store/helmet-21", width: 15 },
+    { slug: "energy", image: "store/can-citrus", width: 8 },
+    { slug: "drift-gloves", image: "store/gloves", width: 13 },
+    { slug: "team-cap", image: "store/cap", width: 13 },
+    { slug: "hoodie-bokiem", image: "store/hoodie-front", width: 16 },
+    { slug: "team-jacket", image: "store/jacket", width: 15 },
+  ] as const satisfies readonly { slug: keyof Messages["store"]["products"]; image: ImageKey; width: number }[]
+).map((p) => ({ ...p, priceCents: getProduct(p.slug)?.priceCents ?? 0 }));
 
 /** Threshold of the dissolve mask for a form of 0 (nothing shown) … 1 (all of it). */
 export function dissolveIntercept(form: number) {
@@ -35,7 +33,7 @@ export function dissolveIntercept(form: number) {
  * comes out of the dust and goes back into it grain by grain. Phones stand them in two columns over
  * the scene instead (the page leaves them in place), named and priced, drifting a little.
  */
-export function StoreFloat({ lang, t }: { lang: Locale; t: Messages["home"]["products"] }) {
+export function StoreFloat({ lang, t }: { lang: Locale; t: Messages["store"]["products"] }) {
   return (
     <div
       aria-hidden

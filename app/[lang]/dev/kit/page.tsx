@@ -121,7 +121,7 @@ export default async function Kit({ params }: PageProps<"/[lang]/dev/kit">) {
             heading="Sideways is the fast way"
             body="Kuba learned car control on frozen car parks outside Wrocław. He still brakes later than the judges think is reasonable."
             data="Titles 3 · Best run 98.5 pts"
-            link={{ href: `/${lang}/team/wierzbicki`, label: "Meet #21" }}
+            link={{ href: `/${lang}/team/21-wierzbicki`, label: "Meet #21" }}
           />
           <Panel>
             <p className="label text-[11px] text-muted">Plain panel</p>

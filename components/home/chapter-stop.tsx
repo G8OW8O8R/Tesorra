@@ -94,7 +94,7 @@ export function ChapterStop({
       data-stop={id}
       aria-label={label}
       inert
-      className="stop pointer-events-none fixed inset-x-0 bottom-0 z-20 flex flex-col justify-end px-(--gutter) pb-[calc(var(--dock-h)+24px)] md:inset-0 md:block md:p-0"
+      className="stop pointer-events-none fixed inset-x-0 bottom-0 z-20 flex flex-col justify-end px-(--gutter) pb-[calc(var(--dock-h)+32px)] md:inset-0 md:block md:p-0"
       style={{ "--stop": `var(--chapter-${id})` } as CSSProperties}
     >
       <div className="pointer-events-auto md:absolute md:bottom-[calc(var(--dock-h)+32px)] md:left-6 md:max-w-[58vw]">

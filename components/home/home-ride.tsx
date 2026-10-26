@@ -6,7 +6,7 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { Wordmark } from "@/components/brand/wordmark";
 import { DustCanvas, type DustSceneHandle } from "@/components/scene/dust-canvas";
 import { Picture } from "@/components/ui/picture";
-import { HOME_CHAPTERS, resetDashboard, setRideHandler, TOP_KMH, updateDashboard } from "@/lib/dashboard";
+import { HOME_CHAPTERS, resetDashboard, setRideHandler, takePendingRide, TOP_KMH, updateDashboard } from "@/lib/dashboard";
 import type { Locale } from "@/lib/i18n";
 import { intro } from "@/lib/motion-tokens";
 import { chapterAt, chapterColour, getRide, heroHorizon } from "@/lib/scene/choreography";
@@ -23,9 +23,9 @@ import { dissolveIntercept, StoreFloat } from "./store-float";
 
 const IDS = HOME_CHAPTERS;
 const DRIVERS = {
-  drift: { page: "wierzbicki", image: "team/kuba-car", face: "team/kuba-face", tilt: -3 },
-  formula: { page: "moreau", image: "team/elena-formula", face: "team/elena-face", tilt: 2.5 },
-  moto: { page: "aranda", image: "team/tomas-moto", face: "team/tomas-face", tilt: -2 },
+  drift: { page: "21-wierzbicki", image: "team/kuba-car", face: "team/kuba-face", tilt: -3 },
+  formula: { page: "08-moreau", image: "team/elena-formula", face: "team/elena-face", tilt: 2.5 },
+  moto: { page: "36-aranda", image: "team/tomas-moto", face: "team/tomas-face", tilt: -2 },
 } as const;
 /** A stop shows from this far before its middle to this far after it (chapters). */
 const STOP_WINDOW = [-0.2, 0.22] as const;
@@ -92,7 +92,7 @@ function stopAt(p: number) {
  * segments, the chapter list in the bar and the keys 1–5 ride to any stop.
  * Past 05 the page scrolls on into the footer as usual; from the top of the footer it rides back.
  */
-export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
+export function HomeRide({ lang, t, products }: { lang: Locale; t: Messages["home"]; products: Messages["store"]["products"] }) {
   const { timeline } = getRide();
   const scene = useRef<DustSceneHandle>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -610,9 +610,18 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
     document.fonts?.ready.then(() => {
       if (mounted) onResize();
     });
-    // Arriving with a stop in the address (/#moto) starts the ride at that stop.
+    // Sent here to a stop from another page (the menu): the ride starts at the opening view once the
+    // lights are out. Arriving with a stop in the address (/#moto) starts the ride at that stop.
+    const pending = takePendingRide();
     const arrival = IDS.indexOf(location.hash.slice(1) as (typeof IDS)[number]);
-    if (arrival >= 0) {
+    let setOff = 0;
+    if (pending !== null) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+      smooth?.scrollTo(0, { immediate: true, force: true });
+      snap = true;
+      const lights = document.documentElement.dataset.intro === "skip" ? 0 : INTRO_DELAY + intro.out;
+      setOff = window.setTimeout(() => rideTo(pending + 1), lights + 350);
+    } else if (arrival >= 0) {
       const at = places()[arrival + 1];
       window.scrollTo({ top: at, behavior: "instant" });
       smooth?.scrollTo(at, { immediate: true, force: true });
@@ -622,6 +631,7 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
 
     return () => {
       mounted = false;
+      window.clearTimeout(setOff);
       cancelAnimationFrame(raf);
       releaseRide();
       cue?.removeEventListener("click", onCue);
@@ -663,7 +673,7 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
         }}
         poster={
           <Picture
-            image="vehicles/drift-car"
+            image="team/kuba-car"
             alt=""
             sizes="100vw"
             loading="eager"
@@ -741,7 +751,7 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
         ))}
       </div>
 
-      <StoreFloat lang={lang} t={t.products} />
+      <StoreFloat lang={lang} t={products} />
 
       {(["drift", "formula", "moto"] as const).map((id, i) => {
         const c = t.chapters[id];
@@ -838,7 +848,7 @@ export function HomeRide({ lang, t }: { lang: Locale; t: Messages["home"] }) {
           >
             <button
               type="button"
-              className="label pointer-events-auto text-[11px] whitespace-nowrap text-fg underline decoration-line underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current"
+              className="label pointer-events-auto py-1 text-[11px] whitespace-nowrap text-fg underline decoration-line underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current"
             >
               <span data-cue-full>{`${t.next} · ${chapters[0].number} ${chapters[0].name} →`}</span>
 

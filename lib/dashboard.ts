@@ -50,6 +50,7 @@ export function getDashboard() {
 }
 
 let rideHandler: ((stop: number) => void) | null = null;
+let pendingRide: number | null = null;
 
 /** The page that owns the ride takes requests to ride to a stop (0 = the first) while it is mounted. */
 export function setRideHandler(handler: (stop: number) => void) {
@@ -59,6 +60,15 @@ export function setRideHandler(handler: (stop: number) => void) {
   };
 }
 
+/** Rides to a stop now, or, with no ride on this page, keeps it for the home page about to open. */
 export function rideToStop(stop: number) {
-  rideHandler?.(stop);
+  if (rideHandler) rideHandler(stop);
+  else pendingRide = stop;
+}
+
+/** The stop asked for before the home page opened, once. */
+export function takePendingRide() {
+  const stop = pendingRide;
+  pendingRide = null;
+  return stop;
 }

@@ -729,3 +729,61 @@ export const sceneTuning = {
 export type SceneTuning = typeof sceneTuning;
 export type StopId = keyof SceneTuning["stops"];
 export type BodyId = "car" | keyof SceneTuning["bodies"];
+
+/**
+ * The light dust scene behind the driver pages: no road and no vehicle, a slow field of grains
+ * in the driver's colour, and the portrait that falls apart into dust and settles as the next one.
+ */
+export const portraitTuning = {
+  /** Grains in the field (desktop / phone), drawn as points; the box they live in (m, camera at 0). */
+  field: {
+    count: { desktop: 60000, mobile: 14000 },
+    box: { x: 30, yBelow: 4, yAbove: 9, near: 1.5, far: 40 },
+    /** Grain size (m), focus distance (m) and blur per unit of defocus, 1/m (px at 1080 px tall). */
+    size: 0.032,
+    focus: 12,
+    blur: 60,
+    /** Largest blurred grain (px at 1080 px tall). */
+    maxBlur: 26,
+    /** Swirl: flow scale (1/m), strength (m) and speed. */
+    flow: { scale: 0.16, amp: 1.1, speed: 0.06 },
+    /** Hue spread (degrees either side), brightness range and share of almost-white sparks. */
+    hue: 25,
+    light: [0.55, 1.35],
+    sparks: 0.03,
+    flicker: 0.25,
+    /** Overall brightness (dimmed: this is a backdrop) and exposure before tone mapping. */
+    gain: 0.5,
+    exposure: 1.1,
+    /** Haze along the bottom: height (share of the screen) and strength. */
+    haze: { height: 0.45, strength: 0.08 },
+    /** Camera drift after the cursor (m) and its time constant (s). */
+    look: { x: 0.9, y: 0.45, follow: 0.6 },
+  },
+  /** Colour change between drivers (s). */
+  colourBlend: 1.2,
+  /** Photo grains: columns across the photo (rows follow its shape) and the texture width loaded. */
+  photo: {
+    columns: { desktop: 220, mobile: 110 },
+    textureWidth: 1280,
+    /** Opaque core of the photo's soft oval, as in the page's CSS mask (share of the radius). */
+    core: 0.5,
+    /**
+     * Whole morph (ms). Each grain starts to leave within `leave` and to land within `land`
+     * (shares of the morph, earlier on the left), and takes `flight` to fly out or in; it lands
+     * only after it has left.
+     */
+    duration: 1700,
+    leave: [0, 0.3],
+    land: [0.4, 0.65],
+    flight: 0.35,
+    /** Scatter: swirl (NDC), wind (NDC, x and up), depth of the swirl's size change. */
+    swirl: 0.16,
+    wind: [0.22, 0.3],
+    /** Grain size in flight (px at DPR 1) and how much brighter it burns. */
+    dust: 2.4,
+    glow: 0.8,
+    /** The grains fade once the page shows the new photo (ms). */
+    fadeOut: 380,
+  },
+} as const;

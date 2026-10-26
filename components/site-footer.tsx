@@ -9,7 +9,6 @@ const link =
 export function SiteFooter({ lang, t }: { lang: Locale; t: Messages["footer"] }) {
   const sections = [
     { href: `/${lang}/team`, label: t.links.team },
-    { href: `/${lang}/season`, label: t.links.season },
     { href: `/${lang}/store`, label: t.links.store },
     { href: `/${lang}#live`, label: t.links.live },
   ];

@@ -417,13 +417,500 @@ html[data-intro="skip"] .home {
   }
 }
 
+/* Sub-page blocks: one screen under the bar kept clear of the dock, or a block in the flow. */
+.block-screen {
+  min-height: calc(100svh - var(--bar-h));
+  padding-bottom: calc(var(--dock-h) + 32px);
+}
+
+.block-flow {
+  padding-block: 14svh;
+}
+
+/*
+ * Driver portrait: a soft oval round the person, opaque to half its radius. The dust scene reads
+ * these numbers and draws the same oval when the photo turns to dust.
+ */
+.portrait-mask {
+  --mcy: 52%;
+  --mrx: 64%;
+  --mry: 60%;
+  mask-image: radial-gradient(ellipse var(--mrx) var(--mry) at var(--mcx, 50%) var(--mcy), #000 50%, transparent 100%);
+}
+
+@media (min-width: 48rem) {
+  .portrait-mask {
+    --mcy: 58%;
+    --mrx: 30%;
+    --mry: 84%;
+  }
+}
+
+.portrait-photo {
+  transition: opacity var(--dur-base) var(--ease-standard);
+}
+
+/*
+ * The huge outlined number: a cell a digit, each a column of digits that rolls like a timing
+ * board when the number changes. On entry the outlines draw themselves.
+ */
+.flap {
+  display: inline-flex;
+  line-height: 1;
+}
+
+.flap-cell {
+  position: relative;
+  height: 1em;
+  width: var(--digit-w, 0.74em);
+  clip-path: inset(0 -0.6em);
+}
+
+.flap-strip {
+  display: flex;
+  flex-direction: column;
+}
+
+.flap-strip svg {
+  display: block;
+  width: 100%;
+  height: 1em;
+  overflow: visible;
+}
+
+.flap text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 900;
+  font-stretch: 125%;
+  font-variation-settings:
+    "wdth" 125,
+    "wght" 900;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
+}
+
+.flap[data-draw] text {
+  stroke-dasharray: 8em;
+  stroke-dashoffset: 8em;
+  animation: flap-draw 1600ms var(--ease-out) forwards;
+  animation-delay: calc(150ms + var(--i, 0) * 120ms);
+}
+
+@keyframes flap-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Name along the left edge, read from the bottom up; its letters rise out of a mask. */
+.v-name {
+  writing-mode: vertical-rl;
+  rotate: 180deg;
+  white-space: nowrap;
+  line-height: 0.82;
+  overflow: clip;
+  padding-inline: 0.04em;
+}
+
+.v-letter {
+  display: inline-block;
+  translate: -110% 0;
+  transition: translate var(--dur-slow) var(--ease-out);
+  transition-delay: calc(80ms + var(--i, 0) * 28ms);
+}
+
+.v-name[data-on] .v-letter {
+  translate: 0 0;
+}
+
+/* Signatures drawn with a pen: one stroke along the path. */
+.signature path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.signature[data-on] path,
+.ride-in[data-on] .signature path {
+  animation: sig-draw var(--sig-time, 2200ms) cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+  animation-delay: var(--sig-delay, 400ms);
+}
+
+@keyframes sig-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Paddock fan: cards turn round a pivot far below them, like cards held in a hand. */
+.fan-card {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: var(--card-w);
+  margin-left: calc(var(--card-w) / -2);
+  transform-origin: 50% 240%;
+  will-change: transform;
+}
+
+.fan-lift {
+  transition: translate var(--dur-base) var(--ease-out);
+}
+
+.fan-card:hover .fan-lift {
+  translate: 0 -6%;
+}
+
+/* Helmet story: full screen over the page. */
+.helmet-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--fg);
+  opacity: 0;
+  translate: 0 var(--travel);
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-out),
+    display var(--dur-base) allow-discrete,
+    overlay var(--dur-base) allow-discrete;
+}
+
+.helmet-dialog[open] {
+  opacity: 1;
+  translate: 0 0;
+}
+
+@starting-style {
+  .helmet-dialog[open] {
+    opacity: 0;
+    translate: 0 var(--travel);
+  }
+}
+
+.helmet-dialog::backdrop {
+  background: var(--bg);
+}
+
+/*
+ * Store float field: small cut-outs over the dust; the page moves them each frame. Opening one
+ * sends the rest away, smaller and blurred, while the picked one carries over.
+ */
+.float-item {
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    scale var(--dur-base) var(--ease-out),
+    filter var(--dur-base) var(--ease-standard);
+}
+
+.float-stage[data-leaving] .float-item:not([data-picked]) {
+  opacity: 0 !important;
+  scale: 0.8;
+  filter: blur(6px) !important;
+}
+
+.float-pic {
+  transition: scale var(--dur-base) var(--ease-out);
+}
+
+.float-item:hover .float-pic {
+  scale: 1.15;
+}
+
+/* Name and price beside a hovered product, clear of it at its larger size. */
+.float-tag {
+  left: 100%;
+  margin-left: calc(7.5% + 0.75rem);
+  translate: 0 -50%;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+
+.float-item[data-side="left"] .float-tag {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: calc(7.5% + 0.75rem);
+}
+
+.float-item:hover .float-tag {
+  opacity: 1;
+}
+
+/* The cursor over a product: a small mono VIEW riding just off the pointer. */
+.float-cursor > span {
+  translate: 12px 12px;
+  scale: 0.6;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    scale var(--dur-fast) var(--ease-out);
+}
+
+.float-cursor[data-on] > span {
+  scale: 1;
+  opacity: 1;
+}
+
+/* The field's backdrop: big soft pools of colour lit into the dust, one set per stretch of the field. */
+.field-backdrop {
+  mix-blend-mode: screen;
+}
+
+.field-glow {
+  background:
+    radial-gradient(60% 55% at 24% 30%, var(--c1), transparent 72%),
+    radial-gradient(55% 60% at 78% 72%, var(--c2), transparent 72%);
+  transition: opacity 200ms linear;
+}
+
+/* The radio call after an add: rises along the bottom, the waves going out one after another. */
+.radio-call {
+  opacity: 0;
+  translate: -50% 12px;
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-brake);
+}
+
+.radio-call[data-on] {
+  opacity: 1;
+  translate: -50% 0;
+}
+
+.radio-waves path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  opacity: 0.2;
+}
+
+.radio-call[data-on] .radio-waves path {
+  animation: radio-wave 900ms steps(1, end) infinite;
+}
+
+.radio-call[data-on] .radio-waves path:nth-of-type(2) {
+  animation-delay: 150ms;
+}
+
+.radio-call[data-on] .radio-waves path:nth-of-type(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes radio-wave {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  61%,
+  100% {
+    opacity: 0.2;
+  }
+}
+
+/* Team page strips: each one a clipped layer; the hovered one widens, its photo slides along. */
+.strip-layer {
+  transition: clip-path var(--dur-slow) var(--ease-out);
+}
+
+.strip-move {
+  transition: translate var(--dur-slow) var(--ease-out);
+}
+
+/*
+ * Site menu: the sheet drops over the page from the top (and lifts away the same way), the words
+ * rise out of a mask after it, the rest rides in. Hovering or focusing a word flips its letters
+ * like timing-board flaps, dims the other words and slides its sub-links out; phones open those
+ * with a tap instead.
+ */
+.menu-sheet {
+  clip-path: inset(0 0 100% 0);
+  visibility: hidden;
+  transition:
+    clip-path 600ms var(--ease-ride),
+    visibility 0s linear 600ms;
+}
+
+.menu-sheet[data-open] {
+  clip-path: inset(0);
+  visibility: visible;
+  transition:
+    clip-path 600ms var(--ease-ride),
+    visibility 0s;
+}
+
+html:has(.menu-sheet[data-open]) .hero-mark {
+  opacity: 0;
+}
+
+/* Once the sheet covers the page, only the dust scene stays under it. */
+#main,
+#footer {
+  transition: visibility 0s;
+}
+
+html:has(.menu-sheet[data-open]) :is(#main, #footer) {
+  visibility: hidden;
+  transition-delay: 600ms;
+}
+
+html:has(.menu-sheet[data-open]) [data-scene] {
+  visibility: visible;
+}
+
+/* A cut-out hanging in the air, drifting slowly. */
+.float-drift {
+  animation: float-drift 6.4s ease-in-out infinite alternate;
+  animation-delay: calc(var(--i, 0) * -1.7s);
+}
+
+@keyframes float-drift {
+  from {
+    translate: 0 6px;
+    rotate: -1.5deg;
+  }
+  to {
+    translate: 0 -8px;
+    rotate: 1.5deg;
+  }
+}
+
+.menu-mask {
+  clip-path: inset(-10% -30% 0 -30%);
+}
+
+.menu-rise {
+  translate: 0 110%;
+  transition: translate var(--dur-base) var(--ease-in);
+}
+
+.menu-sheet[data-open] .menu-rise {
+  translate: 0 0;
+  transition: translate 900ms var(--ease-out);
+  transition-delay: calc(240ms + var(--i, 0) * var(--stagger));
+}
+
+.menu-fade {
+  opacity: 0;
+  translate: 0 var(--travel);
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    translate var(--dur-base) var(--ease-in);
+}
+
+.menu-sheet[data-open] .menu-fade {
+  opacity: 1;
+  translate: 0 0;
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    translate var(--dur-slow) var(--ease-brake);
+  transition-delay: calc(420ms + var(--i, 0) * var(--stagger));
+}
+
+.menu-word {
+  transition:
+    opacity var(--dur-base) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.menu-words:has(.menu-item:is(:hover, :focus-within, [data-expanded])) .menu-item:not(:hover, :focus-within, [data-expanded]) .menu-word {
+  opacity: 0.35;
+}
+
+/* A letter of a menu word with its twin under it: both roll up one line, 20 ms after the last. */
+.flap-l {
+  display: inline-block;
+  clip-path: inset(0 -0.3em);
+}
+
+.flap-l > span {
+  position: relative;
+  display: inline-block;
+  transition: translate 420ms var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 20ms);
+}
+
+.flap-l > span::after {
+  content: attr(data-ch);
+  position: absolute;
+  top: 100%;
+  left: 0;
+}
+
+.menu-item:is(:hover, :focus-within) .flap-l > span {
+  translate: 0 -100%;
+}
+
+.menu-subs {
+  display: none;
+}
+
+.menu-item[data-expanded] .menu-subs {
+  display: flex;
+}
+
+.menu-subs > li {
+  opacity: 0;
+  translate: -0.75rem 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-standard),
+    translate var(--dur-base) var(--ease-out);
+  transition-delay: calc(var(--j, 0) * 40ms);
+}
+
+.menu-item:is(:hover, :focus-within, [data-expanded]) .menu-subs > li {
+  opacity: 1;
+  translate: 0 0;
+}
+
+@media (min-width: 48rem) {
+  .menu-subs {
+    display: flex;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .intro {
     display: none;
   }
 
-  .ride-in [data-enter] {
+  .ride-in [data-enter],
+  .v-letter,
+  .menu-rise,
+  .menu-fade,
+  .menu-subs > li,
+  .menu-item .flap-l > span {
     translate: none;
+  }
+
+  /* The menu cross-fades instead of dropping. */
+  .menu-sheet {
+    clip-path: none;
+    opacity: 0;
+    transition:
+      opacity var(--dur-fade) linear,
+      visibility 0s linear var(--dur-fade);
+  }
+
+  .menu-sheet[data-open] {
+    clip-path: none;
+    opacity: 1;
+    transition:
+      opacity var(--dur-fade) linear,
+      visibility 0s;
   }
 
   *,

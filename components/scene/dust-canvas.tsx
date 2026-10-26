@@ -150,7 +150,7 @@ export function DustCanvas({
   }, [stats, warmup]);
 
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
+    <div aria-hidden data-scene className="pointer-events-none fixed inset-0 z-0">
       <div
         ref={box}
         className="absolute inset-0 transition-opacity ease-out"

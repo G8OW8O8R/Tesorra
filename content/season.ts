@@ -141,6 +141,15 @@ export function roundEnd(r: Round) {
   return new Date(Date.parse(r.start) + r.hours * 3600_000);
 }
 
+/** Day and month at the venue, e.g. 31.10. */
+export function roundDayMonth(r: Round, locale: string) {
+  const parts = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", timeZone: r.timeZone }).formatToParts(
+    roundStart(r),
+  );
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("day")}.${part("month")}`;
+}
+
 /** Rounds that have not started yet, soonest first. */
 export function upcomingRounds(now: Date, limit = season.rounds.length) {
   return season.rounds.filter((r) => Date.parse(r.start) > now.getTime()).slice(0, limit);

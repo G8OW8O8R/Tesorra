@@ -171,10 +171,10 @@ export function CockpitDisplay({ t }: { t: Messages["nav"] }) {
               type="button"
               aria-expanded={open !== null}
               aria-controls="stop-list"
-              aria-label={t.stops}
               onClick={() => setOpen((current) => (current === null ? (getDashboard().chapter ?? 0) : null))}
               className="label -mx-1.5 px-1.5 py-1 underline decoration-transparent underline-offset-4 transition-colors duration-(--dur-fast) ease-standard hover:text-accent hover:decoration-current aria-expanded:text-accent"
             >
+              <span className="sr-only">{`${t.stops}: `}</span>
               <span data-field="number">01</span>
               <span data-field="chapter" className="hidden md:inline">
                 {` ${t.chapters[0]}`}

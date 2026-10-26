@@ -1,24 +1,21 @@
 import Link from "next/link";
 import type { Locale } from "@/lib/i18n";
 import type { Messages } from "@/messages";
+import { BoxButton } from "./box/box-button";
 import { Wordmark } from "./brand/wordmark";
 import { CockpitDisplay } from "./cockpit-display";
-import { NavShortcuts } from "./nav-shortcuts";
-import { SiteMenu } from "./site-menu";
+import { NavShortcuts, type Shortcut } from "./nav-shortcuts";
+import { type MenuText, SiteMenu } from "./site-menu";
 
 /**
  * Top bar styled as a steering-wheel display: wordmark (18 px tall on phones), data line with shift
  * lights, MENU and BOX.
  */
-export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
-  // Box contents arrive with the persisted cart; the count is static until then.
-  const boxCount = 0;
-
-  const shortcuts = [
+export function SiteBar({ lang, t, menu }: { lang: Locale; t: Messages["nav"]; menu: MenuText }) {
+  const shortcuts: Shortcut[] = [
     { key: "t", href: `/${lang}/team` },
-    { key: "s", href: `/${lang}/season` },
-    { key: "m", href: `/${lang}/store` },
-    { key: "l", href: `/${lang}#live` },
+    { key: "s", href: `/${lang}/store` },
+    { key: "l", stop: "live" },
   ];
 
   return (
@@ -38,17 +35,10 @@ export function SiteBar({ lang, t }: { lang: Locale; t: Messages["nav"] }) {
         <CockpitDisplay t={t} />
 
         <div className="flex items-center gap-1 justify-self-end sm:gap-3">
-          <SiteMenu t={t} />
-          <Link
-            href={`/${lang}/store`}
-            aria-label={`${t.box}: ${boxCount} ${t.boxItems}`}
-            className="label inline-flex h-8 items-center gap-1.5 px-2 text-[11px] text-fg transition-colors duration-(--dur-fast) ease-standard hover:text-accent"
-          >
-            {t.box}
-            <span className="text-muted">{boxCount}</span>
-          </Link>
+          <SiteMenu lang={lang} t={t} text={menu} />
+          <BoxButton t={t} />
         </div>
-        <NavShortcuts shortcuts={shortcuts} />
+        <NavShortcuts lang={lang} shortcuts={shortcuts} />
       </nav>
     </header>
   );
